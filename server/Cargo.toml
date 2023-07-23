@@ -1,0 +1,21 @@
+[package]
+name = "hailsplay"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ws-proto = { path = "../ws-proto" }
+
+anyhow = { version = "1.0.72", features = ["backtrace"] }
+axum = { version = "0.6.19", features = ["ws", "headers", "http2", "macros"] }
+axum-extra = "0.7.5"
+headers = "0.3.8"
+serde = { version = "1", features = ["serde_derive"] }
+serde_json = "1"
+sqlx = { version = "0.7.1", features = ["sqlite"] }
+tokio = { version = "1.29.1", features = ["macros", "rt-multi-thread", "sync", "process", "io-util"] }
+tracing-subscriber = "0.3.17"
+url = { version = "2.4.0", features = ["serde"] }
+futures = "0.3.28"

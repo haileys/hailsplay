@@ -1,0 +1,22 @@
+[package]
+name = "trunk-template"
+version = "0.1.0"
+edition = "2021"
+description = "Template for starting a Yew project using Trunk"
+readme = "README.md"
+repository = "https://github.com/yewstack/yew-trunk-minimal-template"
+license = "MIT OR Apache-2.0"
+keywords = ["yew", "trunk"]
+categories = ["gui", "wasm", "web-programming"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[dependencies]
+ws-proto = { path = "../ws-proto" }
+
+yew = { version="0.20", features=["csr"] }
+serde = { version = "1", features = ["serde_derive"] }
+serde_json = "1"
+web-sys = { version = "0.3.64", features = ["HtmlInputElement", "console"] }
+yew-websocket = "1.0.1"
+url = { version = "2.4.0", features = ["serde"] }
+uuid = { version = "1.4.1", features = ["serde", "v4", "js"] }
