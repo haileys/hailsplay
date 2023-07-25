@@ -1,10 +1,8 @@
 use std::cell::RefCell;
-use url::Url;
 use yew::Callback;
 use yew_websocket::websocket::{WebSocketService, WebSocketStatus, WebSocketTask};
 use yew_websocket::format::Text;
-use ws_proto::{ServerMessage, ClientMessage, MetadataRequest};
-use uuid::Uuid;
+use ws_proto::{ServerMessage, ClientMessage};
 
 use crate::subscribe::Subscriber;
 use crate::util;
@@ -20,8 +18,6 @@ pub fn get() -> &'static Session {
         std::mem::transmute::<&Session, &'static Session>(sess)
      })
 }
-
-pub type MetadataCallback = Callback<Option<ws_proto::Metadata>>;
 
 #[derive(Default)]
 pub struct Session {

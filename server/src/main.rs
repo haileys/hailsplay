@@ -1,9 +1,15 @@
 mod error;
 mod ytdlp;
+mod config;
+mod db;
+mod metadata;
 
 use std::net::SocketAddr;
+use std::process::ExitCode;
 use std::task::Poll;
 
+use axum::Json;
+use axum::extract::Query;
 use axum::{
     response::IntoResponse,
     routing::get,
@@ -11,27 +17,65 @@ use axum::{
     extract::TypedHeader,
 };
 
-//allows to extract the IP of connecting user
 use axum::extract::connect_info::ConnectInfo;
 use axum::extract::ws::{self, Message, WebSocket, WebSocketUpgrade};
 
+use config::Config;
+use error::AppResult;
 use futures::{FutureExt, future, Future, StreamExt};
+use log::LevelFilter;
+use serde::Deserialize;
 use tokio::sync::oneshot;
-use ws_proto::{ClientMessage, MetadataRequest, Metadata, MetadataResponse, ServerMessage};
+// use tracing::Level;
+// use tracing_subscriber::EnvFilter;
+// use tracing_subscriber::filter::LevelFilter;
+use url::Url;
+use hailsplay_protocol::{ClientMessage, Metadata, MetadataResponse, ServerMessage};
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
-    
+async fn main() -> ExitCode {
+    pretty_env_logger::formatted_builder()
+        .filter(None, LevelFilter::Info)
+        .init();
+
+    let config = config::load();
+
+    match run(config).await {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            log::error!("fatal error: {e:?}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+async fn run(config: Config) -> anyhow::Result<()> {
+    let pool = db::open(&config.storage.database).await?;
+
     let app = Router::new()
+        .route("/metadata", get(metadata))
         .route("/ws", get(ws_handler));
 
-    axum::Server::bind(&"0.0.0.0:3000".parse()?)
-        .serve(app.into_make_service_with_connect_info::<SocketAddr>())
-        .await?;
+    let fut = axum::Server::bind(&"0.0.0.0:3000".parse()?)
+        .serve(app.into_make_service_with_connect_info::<SocketAddr>());
 
+    log::info!("Listening on 0.0.0.0:3000");
+
+    fut.await?;
 
     Ok(())
+}
+
+#[derive(Deserialize)]
+struct MetadataParams {
+    url: Url,
+}
+
+#[axum::debug_handler]
+async fn metadata(params: Query<MetadataParams>) -> AppResult<Json<Metadata>> {
+    log::info!("Fetching metadata for {}", params.url);
+    let metadata = request_metadata(&params.url).await?;
+    Ok(Json(metadata))
 }
 
 async fn ws_handler(
@@ -66,7 +110,7 @@ struct Session {
     inflight_metadata_request: Option<oneshot::Receiver<MetadataResponse>>,
 }
 
-async fn handle_socket(mut socket: WebSocket, who: SocketAddr) -> anyhow::Result<()> {
+async fn handle_socket(mut socket: WebSocket, _: SocketAddr) -> anyhow::Result<()> {
     let mut session = Session::default();
 
     loop {
@@ -130,7 +174,7 @@ async fn handle_message(msg: ClientMessage, session: &mut Session) -> anyhow::Re
             tokio::spawn(async move {
                 let request_id = request.request_id;
 
-                let metadata_fut = request_metadata(request)
+                let metadata_fut = request_metadata(&request.url)
                     .map(|result| {
                         MetadataResponse {
                             request_id: request_id,
@@ -162,8 +206,8 @@ async fn handle_message(msg: ClientMessage, session: &mut Session) -> anyhow::Re
     Ok(())
 }
 
-async fn request_metadata(request: MetadataRequest) -> anyhow::Result<Metadata> {
-    let metadata = ytdlp::metadata(request.url).await?;
+async fn request_metadata(url: &Url) -> anyhow::Result<Metadata> {
+    let metadata = ytdlp::fetch_metadata(url).await?;
 
     let thumbnail = metadata.thumbnails.into_iter()
         .max_by_key(|th| th.width + th.height);

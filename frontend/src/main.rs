@@ -1,13 +1,13 @@
 mod app;
 mod components;
-mod session;
+// mod session;
 mod util;
 mod subscribe;
 
 use app::App;
 
 fn main() {
-    session::start();
+    // session::start();
     yew::Renderer::<App>::new().render();
 }
 

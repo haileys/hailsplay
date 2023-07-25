@@ -1,28 +1,28 @@
 use url::Url;
-use uuid::Uuid;
 use web_sys::HtmlInputElement;
-use ws_proto::{MetadataResponse, Metadata, ClientMessage, MetadataRequest};
+use hailsplay_protocol::Metadata;
 use yew::{prelude::*, html::Scope};
-use crate::{session, subscribe::SubscribeHandle};
-use crate::log;
+use crate::util;
 
 pub struct Add {
     link: Scope<Self>,
     state: State,
     input: NodeRef,
-    _handle: SubscribeHandle,
+    // _handle: SubscribeHandle,
 }
+
+type MetadataResult = Result<Metadata, gloo_net::Error>;
 
 enum State {
     Default,
-    WaitingForMetadata(Uuid),
-    Metadata(Metadata),
+    WaitingForMetadata(Url, util::TaskHandle),
+    Metadata(MetadataResult),
 }
 
 pub enum AddMsg {
     Change,
     Submit(web_sys::SubmitEvent),
-    MetadataResponse(MetadataResponse),
+    Metadata(MetadataResult),
 }
 
 impl Add {
@@ -36,19 +36,38 @@ impl Add {
         None
     }
 
-    fn fetch_metadata(&mut self) {
-        let request_id = Uuid::new_v4();
+    fn fetch_metadata(&mut self) -> bool {
+        let Some(url) = self.input_url() else { return false; };
 
-        if let Some(url) = self.input_url() {
-            let req = MetadataRequest {
-                request_id,
-                url,
-            };
-            
-            session::get().send(ClientMessage::MetadataRequest(req));
-
-            self.state = State::WaitingForMetadata(request_id);
+        // don't send another request if inflight is the same url
+        match &self.state {
+            State::WaitingForMetadata(inflight_url, _) if inflight_url == &url => {
+                return false;
+            }
+            _ => {}
         }
+
+        let handle = util::link(&self.link)
+            .map(AddMsg::Metadata)
+            .spawn_cancellable({
+                let url = url.clone();
+                |abort| async move {
+                    let metadata = gloo_net::http::Request::get("/metadata")
+                        .query([("url", &url)])
+                        .abort_signal(Some(&abort))
+                        .build()
+                        .expect("gloo_net::http::RequestBuilder::build")
+                        .send()
+                        .await?
+                        .json::<Metadata>()
+                        .await?;
+
+                    Ok(metadata)
+                }
+            });
+
+        self.state = State::WaitingForMetadata(url, handle);
+        true
     }
 }
 
@@ -57,18 +76,14 @@ impl Component for Add {
     type Message = AddMsg;
 
     fn create(ctx: &Context<Self>) -> Self {
-        let callback = ctx.link().callback(AddMsg::MetadataResponse);
-        let handle = session::get().metadata.subscribe(callback);
-
         Add {
             link: ctx.link().clone(),
             state: State::Default,
             input: NodeRef::default(),
-            _handle: handle,
         }
     }
 
-    fn update(&mut self, ctx: &Context<Self>, msg: AddMsg) -> bool {
+    fn update(&mut self, _: &Context<Self>, msg: AddMsg) -> bool {
         match msg {
             AddMsg::Change => {
                 self.fetch_metadata();
@@ -77,40 +92,29 @@ impl Component for Add {
             AddMsg::Submit(_) => {
                 false
             }
-            AddMsg::MetadataResponse(response) => {
-                let State::WaitingForMetadata(id) = self.state else {
-                    return false;
+            AddMsg::Metadata(result) => {
+                match self.state {
+                    State::WaitingForMetadata(..) => {}
+                    _ => { return false; }
                 };
 
-                if id != response.request_id {
-                    return false;
-                }
-
-                match response.result {
-                    Ok(metadata) => {
-                        self.state = State::Metadata(metadata);
-                        true
-                    }
-                    Err(e) => {
-                        log!("metadata error! {e:?}");
-                        false
-                    }
-                }
+                self.state = State::Metadata(result);
+                true
             }
         }
     }
 
-    fn view(&self, ctx: &Context<Self>) -> Html {
+    fn view(&self, _: &Context<Self>) -> Html {
         html! {
             <div class="add">
                 {match &self.state {
                     State::Default => html!{},
-                    State::WaitingForMetadata(_) => html!{
+                    State::WaitingForMetadata(..) => html!{
                         <div class="loading-spinner">
                             <div class="lds-spinner"><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div>
                         </div>
                     },
-                    State::Metadata(meta) => html!{
+                    State::Metadata(Ok(meta)) => html!{
                         <div class="add-preview">
                             <div class="preview-cover-art">
                                 {match &meta.thumbnail {
@@ -123,7 +127,12 @@ impl Component for Add {
                                 <div class="artist">{&meta.artist}</div>
                             </div>
                         </div>
-                    }
+                    },
+                    State::Metadata(Err(e)) => html! {
+                        <div class="add-preview">
+                            <div class="title">{format!("{e:?}")}</div>
+                        </div>
+                    },
                 }}
 
                 <input

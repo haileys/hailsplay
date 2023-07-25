@@ -20,7 +20,7 @@ pub struct Thumbnail {
     pub height: u32,
 }
 
-pub async fn metadata(url: Url) -> anyhow::Result<Metadata> {
+pub async fn fetch_metadata(url: &Url) -> anyhow::Result<Metadata> {
     const MAX_READ_SIZE: u64 = 512 * 1024; // 512 KiB
 
     let mut process = tokio::process::Command::new("yt-dlp")

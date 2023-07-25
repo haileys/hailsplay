@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use std::{cell::RefCell, rc::Rc};
 
 use yew::Callback;
@@ -7,10 +9,6 @@ pub struct Subscriber<T> {
 }
 
 impl<T: Clone + 'static> Subscriber<T> {
-    pub fn new() -> Self {
-        Subscriber { inner: Default::default() }
-    }
-
     pub fn broadcast(&self, val: T) {
         let subscribers = {
             let inner = self.inner.borrow_mut();
