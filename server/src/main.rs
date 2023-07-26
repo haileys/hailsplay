@@ -1,15 +1,17 @@
 mod error;
 mod ytdlp;
 mod config;
-mod db;
-mod metadata;
 
+use std::collections::{HashSet, HashMap};
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::{Arc, Mutex};
 use std::task::Poll;
 
 use axum::Json;
-use axum::extract::Query;
+use axum::extract::{Query, State};
+use axum::routing::post;
 use axum::{
     response::IntoResponse,
     routing::get,
@@ -25,7 +27,7 @@ use error::AppResult;
 use futures::{FutureExt, future, Future, StreamExt};
 use log::LevelFilter;
 use serde::Deserialize;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, watch};
 // use tracing::Level;
 // use tracing_subscriber::EnvFilter;
 // use tracing_subscriber::filter::LevelFilter;
@@ -50,11 +52,13 @@ async fn main() -> ExitCode {
 }
 
 async fn run(config: Config) -> anyhow::Result<()> {
-    let pool = db::open(&config.storage.database).await?;
+    let media_state = App::new(config);
 
     let app = Router::new()
+        .route("/queue/add", post(add))
         .route("/metadata", get(metadata))
-        .route("/ws", get(ws_handler));
+        .route("/ws", get(ws_handler))
+        .with_state(media_state);
 
     let fut = axum::Server::bind(&"0.0.0.0:3000".parse()?)
         .serve(app.into_make_service_with_connect_info::<SocketAddr>());
@@ -66,16 +70,52 @@ async fn run(config: Config) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[derive(Clone)]
+struct App(pub Arc<AppState>);
+
+pub struct AppState {
+    pub config: Config,
+    pub media: Mutex<HashMap<String, Arc<WorkingMediaFile>>>, 
+}
+
+impl App {
+    pub fn new(config: Config) -> Self {
+        App(Arc::new(AppState {
+            config,
+            media: Default::default(),
+        }))
+    }
+}
+
+#[derive(Debug)]
+pub struct WorkingMediaFile {
+    // this is intentionally a String and not PathBuf because we want to enforce
+    // valid UTF-8 in filenames:
+    pub filename: String,
+    pub url: Url,
+    pub byte_size: u64,
+    pub on_progress: watch::Receiver<()>,
+}
+
 #[derive(Deserialize)]
 struct MetadataParams {
     url: Url,
 }
 
-#[axum::debug_handler]
 async fn metadata(params: Query<MetadataParams>) -> AppResult<Json<Metadata>> {
     log::info!("Fetching metadata for {}", params.url);
     let metadata = request_metadata(&params.url).await?;
     Ok(Json(metadata))
+}
+
+#[derive(Deserialize)]
+struct Add {
+    url: Url,
+}
+
+#[axum::debug_handler]
+async fn add(state: State<App>, data: Json<Add>) -> AppResult<Json<()>> {
+    todo!()
 }
 
 async fn ws_handler(

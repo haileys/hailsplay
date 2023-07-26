@@ -1,22 +1,25 @@
 use std::{net::SocketAddr, path::{PathBuf, Path}};
 
 use serde::{Serialize, Deserialize};
+use url::Url;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Config {
     pub http: Http,
     pub storage: Storage,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Http {
     pub listen: SocketAddr,
+    pub internal_url: Url,
+    pub external_url: Url,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Storage {
-    pub database: PathBuf,
     pub archive: PathBuf,
+    pub working: PathBuf,
 }
 
 fn try_config(path: &Path) -> Option<Config> {
