@@ -24,6 +24,9 @@ pub struct Metadata {
     pub webpage_url: Option<Url>,
     pub genre: Option<String>,
     pub thumbnail: Option<Url>,
+    pub ext: String,
+    pub audio_ext: String,
+    pub video_ext: String,
 }
 
 pub async fn fetch_metadata(url: &Url) -> anyhow::Result<Metadata> {
@@ -84,17 +87,32 @@ pub struct DownloadHandle {
     pub thumbnail: Option<SharedFile>,
     pub metadata: Metadata,
     pub metadata_file: SharedFile,
-    pub progress: watch::Receiver<f64>,
+    pub progress: watch::Receiver<Progress>,
     pub complete: oneshot::Receiver<Result<(), anyhow::Error>>,
+}
+
+#[derive(Clone)]
+pub struct Progress {
+    pub downloaded_bytes: u64,
+    pub total_bytes: u64,
+}
+
+impl Progress {
+    pub fn complete(&self) -> bool {
+        self.downloaded_bytes == self.total_bytes
+    }
 }
 
 pub async fn start_download(dir: SharedDir, url: &Url) -> anyhow::Result<DownloadHandle> {
     let mut process = Command::new("yt-dlp")
+        .arg("--extract-audio")
+        .arg("--audio-quality=0") // best
         .arg("--no-overwrites")
         .arg("--no-part")
         .arg("--write-info-json")
         .arg("--write-thumbnail")
         .arg("--newline") // output progress updates as newlines
+        .arg("--progress-template=download:hailsplay-progress:D=%(progress.downloaded_bytes)s:T=%(progress.total_bytes)s")
         .arg(url.to_string())
         .stdout(Stdio::piped())
         .current_dir(dir.path())
@@ -110,6 +128,7 @@ pub async fn start_download(dir: SharedDir, url: &Url) -> anyhow::Result<Downloa
     let mut file = None;
     let mut thumbnail = None;
     let mut metadata = None;
+    let mut progress = None;
 
     loop {
         let line = match ytdlp.read_line().await? {
@@ -130,8 +149,12 @@ pub async fn start_download(dir: SharedDir, url: &Url) -> anyhow::Result<Downloa
                 log::debug!("yt-dlp reported download filename: {f}");
                 file = Some(dir.claim_external_file(Path::new(&f)));
             }
-            | Line::Progress { .. }
-            | Line::Complete { .. } => {
+            Line::Progress(p) => {
+                log::debug!("yt-dlp reported total bytes: {}", p.total_bytes);
+                progress = Some(p);
+                break;
+            }
+            Line::Complete { .. } => {
                 break;
             }
             Line::Other(_) => {}
@@ -146,10 +169,14 @@ pub async fn start_download(dir: SharedDir, url: &Url) -> anyhow::Result<Downloa
         anyhow::bail!("missing metadata filename in yt-dlp output");
     };
 
+    let Some(progress) = progress else {
+        anyhow::bail!("yt-dlp never started reporting progress");
+    };
+
     let metadata_json = tokio::fs::read_to_string(metadata_file.path()).await?;
     let metadata = serde_json::from_str::<Metadata>(&metadata_json)?;
 
-    let (progress_tx, progress_rx) = watch::channel(0.0);
+    let (progress_tx, progress_rx) = watch::channel(progress.clone());
     let (complete_tx, complete_rx) = oneshot::channel();
 
     let handle = DownloadHandle { 
@@ -164,7 +191,7 @@ pub async fn start_download(dir: SharedDir, url: &Url) -> anyhow::Result<Downloa
     tokio::task::spawn(async move {
         let mut complete_tx = Some(complete_tx);
 
-        let download_fut = run_download(ytdlp, progress_tx);
+        let download_fut = run_download(ytdlp, progress_tx, progress.total_bytes);
         futures::pin_mut!(download_fut);
 
         future::poll_fn(|cx| {
@@ -188,22 +215,26 @@ pub async fn start_download(dir: SharedDir, url: &Url) -> anyhow::Result<Downloa
 
 async fn run_download(
     mut ytdlp: YtdlpReader,
-    progress_tx: watch::Sender<f64>
+    progress_tx: watch::Sender<Progress>,
+    total_bytes: u64,
 ) -> anyhow::Result<()> {
-    // watch progress
     loop {
         let Some(line) = ytdlp.read_line().await? else {
             anyhow::bail!("unexpected yt-dlp EOF");
         };
 
         match line {
-            Line::Progress { progress } => {
-                log::debug!("yt-dlp download progress {:.1}%", progress * 100.0);
+            Line::Progress(progress) => {
+                let percent = (progress.downloaded_bytes as f64 / progress.total_bytes as f64) * 100.0;
+                log::debug!("yt-dlp download progress {:.1}%", percent);
                 let _ = progress_tx.send(progress);
             }
             Line::Complete => {
-                log::debug!("yt-dlp download finished");
-                let _ = progress_tx.send(1.0);
+                log::debug!("yt-dlp download complete");
+                let _ = progress_tx.send(Progress {
+                    downloaded_bytes: total_bytes,
+                    total_bytes,
+                });
                 break;
             }
             | Line::Download { .. }
@@ -237,7 +268,11 @@ impl YtdlpReader {
         let mut line = String::new();
         match self.reader.read_line(&mut line).await? {
             0 => Ok(None),
-            _ => Ok(Some(parse_line(line))),
+            _ => {
+                let line = line.trim();
+                log::debug!("yt-dlp: {line}");
+                Ok(Some(parse_line(line)))
+            }
         }
     }
 }
@@ -246,12 +281,12 @@ enum Line {
     Thumbnail { filename: String },
     Metadata { filename: String },
     Download { filename: String },
-    Progress { progress: f64 },
+    Progress(Progress),
     Complete,
     Other(String)
 }
 
-fn parse_line(line: String) -> Line {
+fn parse_line(line: &str) -> Line {
     lazy_static!{
         static ref THUMBNAIL: Regex = Regex::new(
             r"^\[info\] Writing video thumbnail original to: (.*)$").unwrap();
@@ -263,13 +298,11 @@ fn parse_line(line: String) -> Line {
             r"^\[download\] Destination: (.*)$").unwrap();
 
         static ref PROGRESS: Regex = Regex::new(
-            r"^\[download\]\s+([0-9]+\.[0-9]+)%").unwrap();
+            r"^hailsplay-progress:D=(\d+):T=(\d+)$").unwrap();
         
         static ref COMPLETE: Regex = Regex::new(
             r"^\[download\] 100%").unwrap();
     }
-
-    let line = line.trim();
 
     if let Some(m) = THUMBNAIL.captures(line) {
         return Line::Thumbnail { filename: m.get(1).unwrap().as_str().to_owned() };
@@ -284,8 +317,12 @@ fn parse_line(line: String) -> Line {
     }
 
     if let Some(m) = PROGRESS.captures(line) {
-        let percent: f64 = m.get(1).unwrap().as_str().parse().unwrap();
-        return Line::Progress { progress: percent / 100.0 };
+        let downloaded_bytes: u64 = m.get(1).unwrap().as_str().parse().unwrap();
+        let total_bytes: u64 = m.get(2).unwrap().as_str().parse().unwrap();
+        return Line::Progress(Progress {
+            downloaded_bytes,
+            total_bytes,
+        });
     }
 
     if let Some(_) = COMPLETE.captures(line) {

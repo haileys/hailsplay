@@ -2,6 +2,7 @@ mod error;
 mod ytdlp;
 mod config;
 mod fs;
+mod http;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -28,7 +29,7 @@ use error::AppResult;
 use fs::WorkingDirectory;
 use futures::{FutureExt, future, Future, StreamExt};
 use log::LevelFilter;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 use url::Url;
 use hailsplay_protocol::{ClientMessage, Metadata, MetadataResponse, ServerMessage};
@@ -58,6 +59,7 @@ async fn run(config: Config) -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/queue/add", post(add))
+        .route("/media/:id/stream", get(http::media::stream))
         .route("/metadata", get(metadata))
         .route("/ws", get(ws_handler))
         .with_state(media_state);
@@ -73,7 +75,7 @@ async fn run(config: Config) -> anyhow::Result<()> {
 }
 
 #[derive(Clone)]
-struct App(pub Arc<AppCtx>);
+pub struct App(pub Arc<AppCtx>);
 
 pub struct AppCtx {
     pub config: Config,
@@ -118,16 +120,19 @@ struct Add {
     url: Url,
 }
 
+#[derive(Serialize)]
+struct AddResponse {
+    stream_url: Url,
+}
+
 #[axum::debug_handler]
-async fn add(app: State<App>, data: Json<Add>) -> AppResult<Json<String>> {
+async fn add(app: State<App>, data: Json<Add>) -> AppResult<Json<AddResponse>> {
     let id = uuid::Uuid::new_v4();
 
     let dir = app.0.0.working.create_dir(Path::new(&id.to_string())).await?;
     let dir = dir.into_shared();
 
     let download = ytdlp::start_download(dir, &data.url).await?;
-
-    let path = download.file.path().display().to_string();
 
     let record = Arc::new(MediaRecord { 
         url: data.url.clone(),
@@ -140,7 +145,10 @@ async fn add(app: State<App>, data: Json<Add>) -> AppResult<Json<String>> {
         state.media.insert(id, record);
     }
 
-    Ok(Json(path))
+    let stream_url = app.0.0.config.http.external_url
+        .join(&format!("media/{id}/stream"))?;
+
+    Ok(Json(AddResponse { stream_url }))
 }
 
 async fn ws_handler(
