@@ -699,6 +699,7 @@ dependencies = [
  "hailsplay-protocol",
  "headers",
  "lazy_static",
+ "libc",
  "log",
  "pretty_env_logger",
  "regex",
@@ -708,6 +709,7 @@ dependencies = [
  "tokio",
  "toml",
  "url",
+ "uuid",
 ]
 
 [[package]]

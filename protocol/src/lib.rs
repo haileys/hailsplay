@@ -27,6 +27,6 @@ pub struct MetadataResponse {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Metadata {
     pub title: String,
-    pub artist: String,
+    pub artist: Option<String>,
     pub thumbnail: Option<Url>,
 }

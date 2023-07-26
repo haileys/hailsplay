@@ -1,15 +1,16 @@
-use std::f64::consts::E;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Stdio;
-use std::str::FromStr;
+use std::task::Poll;
+use futures::{FutureExt, future};
 use regex::Regex;
 use lazy_static::lazy_static;
-use tokio::process::Command;
+use tokio::process::{Command, Child, ChildStdout};
 use tokio::io::{AsyncRead, AsyncReadExt, BufReader, AsyncBufReadExt};
 use tokio::sync::{oneshot, watch};
 use url::Url;
 use serde::Deserialize;
-use url::form_urlencoded::parse;
+
+use crate::fs::{SharedDir, SharedFile};
 
 #[derive(Deserialize)]
 pub struct Metadata {
@@ -79,32 +80,16 @@ async fn read_to_string_logging_errors(stream: &str, mut read: impl AsyncRead + 
 }
 
 pub struct DownloadHandle {
-    pub filename: PathBuf,
-    pub thumbnail: Option<PathBuf>,
+    pub file: SharedFile,
+    pub thumbnail: Option<SharedFile>,
     pub metadata: Metadata,
+    pub metadata_file: SharedFile,
     pub progress: watch::Receiver<f64>,
     pub complete: oneshot::Receiver<Result<(), anyhow::Error>>,
 }
 
-pub async fn start_download(dir: &Path, url: &Url) -> anyhow::Result<DownloadHandle> {
-    let (tx, rx) = oneshot::channel();
-
-    tokio::task::spawn({
-        let dir = dir.to_owned();
-        let url = url.to_owned();
-        run_download(dir, url, tx)
-    });
-
-    rx.await;
-    todo!();
-}
-
-async fn run_download(
-    dir: PathBuf,
-    url: Url,
-    handle_tx: oneshot::Sender<anyhow::Result<DownloadHandle>>,
-) {
-    let result = Command::new("ytdlp")
+pub async fn start_download(dir: SharedDir, url: &Url) -> anyhow::Result<DownloadHandle> {
+    let mut process = Command::new("yt-dlp")
         .arg("--no-overwrites")
         .arg("--no-part")
         .arg("--write-info-json")
@@ -112,73 +97,161 @@ async fn run_download(
         .arg("--newline") // output progress updates as newlines
         .arg(url.to_string())
         .stdout(Stdio::piped())
-        .current_dir(dir)
+        .current_dir(dir.path())
         .kill_on_drop(true)
-        .spawn();
-
-    let process = match result {
-        Ok(process) => process,
-        Err(e) => {
-            let _ = handle_tx.send(Err(e.into()));
-            return;
-        }
-    };
+        .spawn()?;
 
     let stdout = process.stdout.take().unwrap();
-    let stdout = BufReader::new(stdout);
+    let mut ytdlp = YtdlpReader {
+        process,
+        reader: BufReader::new(stdout),
+    };
 
+    let mut file = None;
     let mut thumbnail = None;
     let mut metadata = None;
-    let mut filename = None;
+
+    loop {
+        let line = match ytdlp.read_line().await? {
+            Some(line) => line,
+            None => { anyhow::bail!("unexpected yt-dlp EOF"); }
+        };
+
+        match line {
+            Line::Thumbnail { filename: f } => {
+                log::debug!("yt-dlp reported thumbnail filename: {f}");
+                thumbnail = Some(dir.claim_external_file(Path::new(&f)));
+            }
+            Line::Metadata { filename: f } => {
+                log::debug!("yt-dlp reported metadata filename: {f}");
+                metadata = Some(dir.claim_external_file(Path::new(&f)));
+            }
+            Line::Download { filename: f } => {
+                log::debug!("yt-dlp reported download filename: {f}");
+                file = Some(dir.claim_external_file(Path::new(&f)));
+            }
+            | Line::Progress { .. }
+            | Line::Complete { .. } => {
+                break;
+            }
+            Line::Other(_) => {}
+        }
+    }
+
+    let Some(file) = file else {
+        anyhow::bail!("missing download filename in yt-dlp output");
+    };
+
+    let Some(metadata_file) = metadata else {
+        anyhow::bail!("missing metadata filename in yt-dlp output");
+    };
+
+    let metadata_json = tokio::fs::read_to_string(metadata_file.path()).await?;
+    let metadata = serde_json::from_str::<Metadata>(&metadata_json)?;
+
     let (progress_tx, progress_rx) = watch::channel(0.0);
     let (complete_tx, complete_rx) = oneshot::channel();
 
-    let mut line = String::new();
-    loop {
-        // read line from ytdlp
-        line.truncate(0);
-        match stdout.read_line(&mut line).await {
-            Ok(_) => {},
-            Err(e) => {
-                log::error!("read_line error: {e:?}");
-                return;
-            }
-        }
+    let handle = DownloadHandle { 
+        file: file.into_shared(),
+        thumbnail: thumbnail.map(|th| th.into_shared()),
+        metadata: metadata,
+        metadata_file: metadata_file.into_shared(),
+        progress: progress_rx,
+        complete: complete_rx,
+    };
 
-        let line = parse_line(&line);
+    tokio::task::spawn(async move {
+        let mut complete_tx = Some(complete_tx);
+
+        let download_fut = run_download(ytdlp, progress_tx);
+        futures::pin_mut!(download_fut);
+
+        future::poll_fn(|cx| {
+            if let Poll::Ready(()) = complete_tx.as_mut().unwrap().poll_closed(cx) {
+                // complete_rx has hung up on us, end our task
+                return Poll::Ready(());
+            }
+
+            if let Poll::Ready(result) = download_fut.poll_unpin(cx) {
+                let complete_tx = complete_tx.take().unwrap();
+                let _ = complete_tx.send(result);
+                return Poll::Ready(());
+            }
+
+            Poll::Pending
+        }).await
+    });
+
+    Ok(handle)
+}
+
+async fn run_download(
+    mut ytdlp: YtdlpReader,
+    progress_tx: watch::Sender<f64>
+) -> anyhow::Result<()> {
+    // watch progress
+    loop {
+        let Some(line) = ytdlp.read_line().await? else {
+            anyhow::bail!("unexpected yt-dlp EOF");
+        };
 
         match line {
-            Status::Thumbnail { filename: f } => {
-                thumbnail = Some(f.to_owned());
+            Line::Progress { progress } => {
+                log::debug!("yt-dlp download progress {:.1}%", progress * 100.0);
+                let _ = progress_tx.send(progress);
             }
-            Status::Metadata { filename: f } => {
-                metadata = Some(f.to_owned());
+            Line::Complete => {
+                log::debug!("yt-dlp download finished");
+                let _ = progress_tx.send(1.0);
+                break;
             }
-            Status::Download { filename: f } => {
-                filename = Some(f.to_owned());
-            }
-            Status::Progress { progress } => {
-                match progress_tx.send(progress) {
-                    Ok(()) => {}
-                    Err(_) => {
-                        // receiver disconnected, cleanup
-                    }
-                }
-            }
+            | Line::Download { .. }
+            | Line::Thumbnail { .. }
+            | Line::Metadata { .. }
+            | Line::Other { .. } => {}
+        }
+    }
+
+    // read any remaining lines
+    while let Some(_) = ytdlp.read_line().await? {
+        // pass
+    }
+
+    let status = ytdlp.process.wait().await?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        anyhow::bail!("yt-dlp returned failure status");
+    }
+}
+
+struct YtdlpReader { 
+    process: Child,
+    reader: BufReader<ChildStdout>,
+}
+
+impl YtdlpReader {
+    pub async fn read_line(&mut self) -> Result<Option<Line>, tokio::io::Error> {
+        let mut line = String::new();
+        match self.reader.read_line(&mut line).await? {
+            0 => Ok(None),
+            _ => Ok(Some(parse_line(line))),
         }
     }
 }
 
-enum Status<'a> {
-    Thumbnail { filename: &'a str },
-    Metadata { filename: &'a str },
-    Download { filename: &'a str },
+enum Line {
+    Thumbnail { filename: String },
+    Metadata { filename: String },
+    Download { filename: String },
     Progress { progress: f64 },
     Complete,
-    Other(&'a str)
+    Other(String)
 }
 
-fn parse_line<'a>(line: &'a str) -> Status<'a> {
+fn parse_line(line: String) -> Line {
     lazy_static!{
         static ref THUMBNAIL: Regex = Regex::new(
             r"^\[info\] Writing video thumbnail original to: (.*)$").unwrap();
@@ -196,48 +269,28 @@ fn parse_line<'a>(line: &'a str) -> Status<'a> {
             r"^\[download\] 100%").unwrap();
     }
 
+    let line = line.trim();
+
     if let Some(m) = THUMBNAIL.captures(line) {
-        return Status::Thumbnail { filename: m.get(1).unwrap().as_str() };
+        return Line::Thumbnail { filename: m.get(1).unwrap().as_str().to_owned() };
     }
 
     if let Some(m) = METADATA.captures(line) {
-        return Status::Metadata { filename: m.get(1).unwrap().as_str() };
+        return Line::Metadata { filename: m.get(1).unwrap().as_str().to_owned() };
     }
 
     if let Some(m) = DOWNLOAD.captures(line) {
-        return Status::Download { filename: m.get(1).unwrap().as_str() };
+        return Line::Download { filename: m.get(1).unwrap().as_str().to_owned() };
     }
 
     if let Some(m) = PROGRESS.captures(line) {
         let percent: f64 = m.get(1).unwrap().as_str().parse().unwrap();
-        return Status::Progress { progress: percent / 100.0 };
+        return Line::Progress { progress: percent / 100.0 };
     }
 
-    if let Some(m) = COMPLETE.captures(line) {
-        return Status::Complete;
+    if let Some(_) = COMPLETE.captures(line) {
+        return Line::Complete;
     }
 
-    return Status::Other(s);
+    return Line::Other(line.to_owned());
 }
-
-// struct StatusLine<'a> {
-//     pub tag: &'a str,
-//     pub line: &'a str,
-// }
-
-// impl FromStr for StatusLine<'_> {
-//     type Err = anyhow::Error;
-
-//     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        
-//         let captures = RE.captures(s)
-//             .ok_or_else(|| {
-//                 anyhow::bail!("yt-dlp line did not match expected format: {s}")
-//             })?;
-
-//         let tag = captures.get(1).unwrap().as_str();
-//         let line = captures.get(2).unwrap().as_str();
-
-//         Ok(StatusLine { tag, line })
-//     }
-// }

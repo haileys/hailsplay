@@ -1,10 +1,11 @@
 mod error;
 mod ytdlp;
 mod config;
+mod fs;
 
-use std::collections::{HashSet, HashMap};
+use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::Path;
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
@@ -24,19 +25,19 @@ use axum::extract::ws::{self, Message, WebSocket, WebSocketUpgrade};
 
 use config::Config;
 use error::AppResult;
+use fs::WorkingDirectory;
 use futures::{FutureExt, future, Future, StreamExt};
 use log::LevelFilter;
 use serde::Deserialize;
-use tokio::sync::{oneshot, watch};
-// use tracing::Level;
-// use tracing_subscriber::EnvFilter;
-// use tracing_subscriber::filter::LevelFilter;
+use tokio::sync::oneshot;
 use url::Url;
 use hailsplay_protocol::{ClientMessage, Metadata, MetadataResponse, ServerMessage};
+use uuid::Uuid;
 
 #[tokio::main]
 async fn main() -> ExitCode {
     pretty_env_logger::formatted_builder()
+        .filter(Some("hailsplay"), LevelFilter::Debug)
         .filter(None, LevelFilter::Info)
         .init();
 
@@ -52,7 +53,8 @@ async fn main() -> ExitCode {
 }
 
 async fn run(config: Config) -> anyhow::Result<()> {
-    let media_state = App::new(config);
+    let working = WorkingDirectory::open_or_create(&config.storage.working).await?;
+    let media_state = App::new(config, working);
 
     let app = Router::new()
         .route("/queue/add", post(add))
@@ -71,30 +73,33 @@ async fn run(config: Config) -> anyhow::Result<()> {
 }
 
 #[derive(Clone)]
-struct App(pub Arc<AppState>);
+struct App(pub Arc<AppCtx>);
 
-pub struct AppState {
+pub struct AppCtx {
     pub config: Config,
-    pub media: Mutex<HashMap<String, Arc<WorkingMediaFile>>>, 
+    pub working: WorkingDirectory,
+    pub state: Mutex<AppState>,
+}
+
+#[derive(Default)]
+pub struct AppState {
+    pub media_by_url: HashMap<Url, Uuid>,
+    pub media: HashMap<Uuid, Arc<MediaRecord>>, 
+}
+
+pub struct MediaRecord {
+    pub url: Url,
+    pub download: ytdlp::DownloadHandle,
 }
 
 impl App {
-    pub fn new(config: Config) -> Self {
-        App(Arc::new(AppState {
+    pub fn new(config: Config, working: WorkingDirectory) -> Self {
+        App(Arc::new(AppCtx {
             config,
-            media: Default::default(),
+            working,
+            state: Default::default(),
         }))
     }
-}
-
-#[derive(Debug)]
-pub struct WorkingMediaFile {
-    // this is intentionally a String and not PathBuf because we want to enforce
-    // valid UTF-8 in filenames:
-    pub filename: String,
-    pub url: Url,
-    pub byte_size: u64,
-    pub on_progress: watch::Receiver<()>,
 }
 
 #[derive(Deserialize)]
@@ -114,8 +119,28 @@ struct Add {
 }
 
 #[axum::debug_handler]
-async fn add(state: State<App>, data: Json<Add>) -> AppResult<Json<()>> {
-    todo!()
+async fn add(app: State<App>, data: Json<Add>) -> AppResult<Json<String>> {
+    let id = uuid::Uuid::new_v4();
+
+    let dir = app.0.0.working.create_dir(Path::new(&id.to_string())).await?;
+    let dir = dir.into_shared();
+
+    let download = ytdlp::start_download(dir, &data.url).await?;
+
+    let path = download.file.path().display().to_string();
+
+    let record = Arc::new(MediaRecord { 
+        url: data.url.clone(),
+        download,
+    });
+    
+    {
+        let mut state = app.0.0.state.lock().unwrap();
+        state.media_by_url.insert(data.url.clone(), id);
+        state.media.insert(id, record);
+    }
+
+    Ok(Json(path))
 }
 
 async fn ws_handler(
@@ -249,12 +274,9 @@ async fn handle_message(msg: ClientMessage, session: &mut Session) -> anyhow::Re
 async fn request_metadata(url: &Url) -> anyhow::Result<Metadata> {
     let metadata = ytdlp::fetch_metadata(url).await?;
 
-    let thumbnail = metadata.thumbnails.into_iter()
-        .max_by_key(|th| th.width + th.height);
-
     Ok(Metadata {
-        title: metadata.title,
+        title: metadata.title.unwrap_or_else(|| url.to_string()),
         artist: metadata.uploader,
-        thumbnail: thumbnail.map(|th| th.url),
+        thumbnail: metadata.thumbnail,
     })
 }

@@ -14,7 +14,7 @@ axum-extra = "0.7.5"
 headers = "0.3.8"
 serde = { version = "1", features = ["serde_derive"] }
 serde_json = "1"
-tokio = { version = "1.29.1", features = ["macros", "rt-multi-thread", "sync", "process", "io-util"] }
+tokio = { version = "1.29.1", features = ["macros", "rt-multi-thread", "sync", "process", "io-util", "fs"] }
 url = { version = "2.4.0", features = ["serde"] }
 futures = "0.3.28"
 pretty_env_logger = "0.5.0"
@@ -23,3 +23,5 @@ toml = "0.7.6"
 reqwest = { version = "0.11.18", features = ["native-tls"] }
 lazy_static = "1.4.0"
 regex = "1.9.1"
+libc = "0.2.147"
+uuid = { version = "1.4.1", features = ["v4"] }

@@ -4,5 +4,5 @@ internal_url = "http://127.0.0.1:3000/"
 external_url = "http://10.1.1.6:3000/"
 
 [storage]
-database = "hailsplay.db"
 archive = "archive"
+working = "working"

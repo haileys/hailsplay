@@ -124,7 +124,10 @@ impl Component for Add {
                             </div>
                             <div class="preview-details">
                                 <div class="title">{&meta.title}</div>
-                                <div class="artist">{&meta.artist}</div>
+                                {match &meta.artist {
+                                    Some(artist) => html!{ <div class="artist">{artist}</div> },
+                                    None => html!{}
+                                }}
                             </div>
                         </div>
                     },
