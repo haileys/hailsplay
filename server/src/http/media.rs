@@ -158,8 +158,12 @@ async fn run_stream(
     tx: mpsc::Sender<io::Result<Bytes>>,
     mut progress: watch::Receiver<Progress>,
 ) {
+    log::debug!("run_stream start, waiting for stream catch up: seek.start = {}", seek.start);
+
     // wait for stream to catch up with where we want to seek to
     let _ = progress.wait_for(|p| p.downloaded_bytes >= seek.start).await;
+
+    log::debug!("stream caught up, seeking");
 
     // seek the file
     match file.seek(SeekFrom::Start(seek.start)).await {
@@ -170,6 +174,8 @@ async fn run_stream(
             return;
         }
     }
+
+    log::debug!("seeked!");
 
     let mut pos = seek.start;
 
@@ -200,7 +206,9 @@ async fn run_stream(
         match result {
             Ok(0) => { break; }
             Ok(n) => {
-                let _ = tx.send(Ok(buf.freeze()));
+                // no need to check err here, we automatically get cancelled
+                // on rx hangup
+                let _: Result<_, _> = tx.send(Ok(buf.freeze())).await;
                 pos += n as u64;
             }
             Err(e) => {
