@@ -6,6 +6,7 @@ use url::Url;
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Config {
     pub http: Http,
+    pub mpd: Mpd,
     pub storage: Storage,
 }
 
@@ -14,6 +15,11 @@ pub struct Http {
     pub listen: SocketAddr,
     pub internal_url: Url,
     pub external_url: Url,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Mpd {
+    pub socket: PathBuf,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

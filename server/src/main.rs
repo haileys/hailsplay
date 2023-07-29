@@ -3,6 +3,7 @@ mod ytdlp;
 mod config;
 mod fs;
 mod http;
+mod mpd;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -29,6 +30,7 @@ use error::AppResult;
 use fs::WorkingDirectory;
 use futures::{FutureExt, future, Future, StreamExt};
 use log::LevelFilter;
+use mpd::Mpd;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 use url::Url;
@@ -55,7 +57,8 @@ async fn main() -> ExitCode {
 
 async fn run(config: Config) -> anyhow::Result<()> {
     let working = WorkingDirectory::open_or_create(&config.storage.working).await?;
-    let media_state = App::new(config, working);
+    let mpd = Mpd::connect(&config.mpd).await?;
+    let media_state = App::new(config, working, mpd);
 
     let app = Router::new()
         .route("/queue/add", post(add))
@@ -80,6 +83,7 @@ pub struct App(pub Arc<AppCtx>);
 pub struct AppCtx {
     pub config: Config,
     pub working: WorkingDirectory,
+    pub mpd: Mpd,
     pub state: Mutex<AppState>,
 }
 
@@ -95,10 +99,11 @@ pub struct MediaRecord {
 }
 
 impl App {
-    pub fn new(config: Config, working: WorkingDirectory) -> Self {
+    pub fn new(config: Config, working: WorkingDirectory, mpd: Mpd) -> Self {
         App(Arc::new(AppCtx {
             config,
             working,
+            mpd,
             state: Default::default(),
         }))
     }
@@ -122,7 +127,7 @@ struct Add {
 
 #[derive(Serialize)]
 struct AddResponse {
-    stream_url: Url,
+    mpd_id: mpd::Id,
 }
 
 #[axum::debug_handler]
@@ -148,7 +153,8 @@ async fn add(app: State<App>, data: Json<Add>) -> AppResult<Json<AddResponse>> {
     let stream_url = app.0.0.config.http.external_url
         .join(&format!("media/{id}/stream"))?;
 
-    Ok(Json(AddResponse { stream_url }))
+    let mpd_id = app.0.0.mpd.addid(&stream_url).await?;
+    Ok(Json(AddResponse { mpd_id }))
 }
 
 async fn ws_handler(
