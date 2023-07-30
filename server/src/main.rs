@@ -49,7 +49,7 @@ async fn main() -> ExitCode {
     match run(config).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            log::error!("fatal error: {e:?}");
+            log::error!("fatal error: {e:?}\n{}", e.backtrace());
             ExitCode::FAILURE
         }
     }
@@ -80,10 +80,19 @@ async fn run(config: Config) -> anyhow::Result<()> {
 #[derive(Clone)]
 pub struct App(pub Arc<AppCtx>);
 
+impl App {
+    pub async fn mpd(&self) -> anyhow::Result<Mpd> {
+        Ok(Mpd::connect(&self.0.config.mpd).await?)
+    }
+
+    pub fn working_dir(&self) -> &WorkingDirectory {
+        &self.0.working
+    }
+}
+
 pub struct AppCtx {
     pub config: Config,
     pub working: WorkingDirectory,
-    pub mpd: Mpd,
     pub state: Mutex<AppState>,
 }
 
@@ -103,7 +112,6 @@ impl App {
         App(Arc::new(AppCtx {
             config,
             working,
-            mpd,
             state: Default::default(),
         }))
     }
@@ -134,26 +142,30 @@ struct AddResponse {
 async fn add(app: State<App>, data: Json<Add>) -> AppResult<Json<AddResponse>> {
     let id = uuid::Uuid::new_v4();
 
-    let dir = app.0.0.working.create_dir(Path::new(&id.to_string())).await?;
+    let dir = app.working_dir().create_dir(Path::new(&id.to_string())).await?;
     let dir = dir.into_shared();
 
     let download = ytdlp::start_download(dir, &data.url).await?;
-
-    let record = Arc::new(MediaRecord { 
-        url: data.url.clone(),
-        download,
-    });
+    let metadata = download.metadata.clone();
     
     {
         let mut state = app.0.0.state.lock().unwrap();
         state.media_by_url.insert(data.url.clone(), id);
-        state.media.insert(id, record);
+        state.media.insert(id, Arc::new(MediaRecord { 
+            url: data.url.clone(),
+            download,
+        }));
     }
 
     let stream_url = app.0.0.config.http.external_url
         .join(&format!("media/{id}/stream"))?;
 
-    let mpd_id = app.0.0.mpd.addid(&stream_url).await?;
+    log::info!("Adding {}", metadata.title
+        .unwrap_or_else(|| data.url.to_string()));
+
+    let mut mpd = app.mpd().await?;
+    let mpd_id = mpd.addid(&stream_url).await?;
+
     Ok(Json(AddResponse { mpd_id }))
 }
 

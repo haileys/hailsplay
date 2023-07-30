@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use web_sys::{AbortController, AbortSignal};
-use futures::future::Future;
+use futures::{future::Future, FutureExt};
 use yew::BaseComponent;
 
 #[allow(unused)]
@@ -18,6 +18,37 @@ pub fn websocket_origin() -> String {
     };
 
     format!("{}//{}", proto, host)
+}
+
+#[derive(Debug)]
+pub struct Cancelled;
+
+pub fn cancellable<Fut>(func: impl FnOnce(AbortSignal) -> Fut + 'static)
+    -> impl Future<Output = Result<Fut::Output, Cancelled>>
+    where Fut: Future
+{
+    let controller = AbortController::new()
+        .expect("AbortController::new");
+
+    let signal = controller.signal();
+
+    func(signal.clone())
+        .map(move |result| {
+            if !signal.aborted() {
+                Ok(result)
+            } else {
+                Err(Cancelled)
+            }
+        })
+}
+
+pub fn spawn_cancellable(fut: impl Future<Output = Result<(), Cancelled>> + 'static) {
+    wasm_bindgen_futures::spawn_local(async move {
+        match fut.await {
+            Ok(()) => {}
+            Err(_)  => {}
+        }
+    });
 }
 
 pub fn link<C: BaseComponent>(scope: &yew::html::Scope<C>) -> Link<C> {
@@ -71,6 +102,7 @@ impl<C: BaseComponent, T, F> LinkMap<C, T, F>
     }    
 }
 
+#[derive(Debug)]
 pub struct TaskHandle {
     controller: AbortController,
 }

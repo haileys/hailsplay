@@ -9,15 +9,10 @@ use url::Url;
 
 use crate::config;
 
-use self::protocol::{MpdReader, MpdWriter};
+use self::protocol::{MpdReader, MpdWriter, Protocol};
 
 pub struct Mpd {
-    inner: Mutex<Inner>
-}
-
-struct Inner {
-    reader: MpdReader<OwnedReadHalf>,
-    writer: MpdWriter<OwnedWriteHalf>,
+    conn: Conn,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -25,23 +20,33 @@ pub struct Id(String);
 
 impl Mpd {
     pub async fn connect(config: &config::Mpd) -> Result<Mpd> {
-        let sock = UnixStream::connect(&config.socket).await?;
-        let (rx, tx) = sock.into_split();
-        let (reader, proto) = MpdReader::open(rx).await?;
-        let writer = MpdWriter::open(tx);
-        let inner = Mutex::new(Inner { reader, writer });
+        let (conn, proto) = Conn::connect(config).await?;
         log::info!("Connected to mpd at {}, protocol version {}",
             config.socket.display(), proto.version);
-        Ok(Mpd { inner })
+        Ok(Mpd { conn })
     }
 
-    pub async fn addid(&self, uri: &Url) -> Result<Id> {
-        let mut inner = self.inner.lock().await;
-        inner.writer.send_command("addid", &[&uri.to_string()]).await?;
-        let mut resp = inner.reader.read_response().await??;
+    pub async fn addid(&mut self, uri: &Url) -> Result<Id> {
+        self.conn.writer.send_command("addid", &[&uri.to_string()]).await?;
+        let mut resp = self.conn.reader.read_response().await??;
         let Some(id) = resp.attributes.remove("Id") else {
             bail!("no Id attribute in addid response");
         };
         Ok(Id(id))
+    }
+}
+
+struct Conn {
+    reader: MpdReader,
+    writer: MpdWriter,
+}
+
+impl Conn {
+    pub async fn connect(config: &config::Mpd) -> Result<(Conn, Protocol)> {
+        let sock = UnixStream::connect(&config.socket).await?;
+        let (rx, tx) = sock.into_split();
+        let (reader, proto) = MpdReader::open(rx).await?;
+        let writer = MpdWriter::open(tx);
+        Ok((Conn { reader, writer }, proto))
     }
 }

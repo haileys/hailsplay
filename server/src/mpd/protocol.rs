@@ -1,23 +1,26 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, io};
 use std::fmt::Display;
 
 use anyhow::{Context, bail};
 use tokio::io::{BufReader, AsyncRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-pub struct MpdReader<R> {
-    r: BufReader<R>,
+pub struct MpdReader {
+    r: BufReader<Box<dyn AsyncRead + Send + Unpin>>,
 }
 
 pub struct Protocol {
     pub version: String,
 }
 
-impl<R: AsyncRead + Unpin> MpdReader<R> {
-    pub async fn open(r: R) -> anyhow::Result<(Self, Protocol)> {
-        let mut r = BufReader::new(r);
+impl MpdReader {
+    pub async fn open<R>(r: R) -> anyhow::Result<(Self, Protocol)>
+        where R: AsyncRead + Send + Unpin + 'static
+    {
+        let mut r = BufReader::new(Box::new(r) as Box<_>);
 
         let mut line = String::new();
         r.read_line(&mut line).await?;
+        let line = line.trim_end();
 
         let Some(proto) = prefixed("OK MPD ", &line) else {
             bail!("unexpected initial line from mpd: {line:?}")
@@ -37,20 +40,26 @@ impl<R: AsyncRead + Unpin> MpdReader<R> {
         loop {
             buff.truncate(0);
             self.r.read_line(&mut buff).await?;
+            if buff.len() == 0 {
+                bail!("connection eof");
+            }
 
-            if buff == "OK\n" {
+            let line = buff.trim_end();
+            log::debug!("reading {line:?}");
+
+            if line == "OK" {
                 return Ok(Ok(Ok {
                     attributes,
                     binary,
                 }));
             }
 
-            if let Some(line) = prefixed("ACK ", &buff) {
+            if let Some(line) = prefixed("ACK ", line) {
                 let line = line.to_string();
                 return Ok(Err(Error { line }));
             }
             
-            if let Some(len) = prefixed("binary: ", &buff) {
+            if let Some(len) = prefixed("binary: ", line) {
                 let len = len.parse().context("parsing length of binary data")?;
                 let mut bin = Vec::with_capacity(len);
                 self.r.read_exact(&mut bin).await.context("reading binary data")?;
@@ -62,10 +71,10 @@ impl<R: AsyncRead + Unpin> MpdReader<R> {
                 continue;
             }
 
-            if let Some((key, value)) = buff.split_once(": ") {
+            if let Some((key, value)) = line.split_once(": ") {
                 attributes.insert(key.to_string(), value.to_string());
             } else {
-                bail!("unrecognised response line from mpd: {buff:?}");
+                bail!("unrecognised response line from mpd: {line:?}");
             }
         }
     }
@@ -73,7 +82,7 @@ impl<R: AsyncRead + Unpin> MpdReader<R> {
 
 fn prefixed<'a>(prefix: &str, s: &'a str) -> Option<&'a str> {
     if s.starts_with(prefix) {
-        Some(&s[prefix.len()..].trim_end())
+        Some(&s[prefix.len()..])
     } else {
         None
     }
@@ -100,13 +109,15 @@ pub struct Ok {
     pub binary: Option<Vec<u8>>,
 }
 
-pub struct MpdWriter<W> {
-    w: W,
+pub struct MpdWriter {
+    w: Box<dyn AsyncWrite + Send + Unpin>,
 }
 
-impl<W: AsyncWrite + Unpin> MpdWriter<W> {
-    pub fn open(w: W) -> Self {
-        MpdWriter { w }
+impl MpdWriter {
+    pub fn open<W>(w: W) -> Self
+        where W: AsyncWrite + Send + Unpin + 'static
+    {
+        MpdWriter { w: Box::new(w) }
     }
 
     pub async fn send_command(&mut self, cmd: &str, args: &[&str]) -> anyhow::Result<()> {
@@ -130,8 +141,9 @@ impl<W: AsyncWrite + Unpin> MpdWriter<W> {
             }
             line.push('"');
         }
-
+        line.push('\n');
+        
         self.w.write_all(line.as_bytes()).await?;
         Ok(())
-    }
+    }    
 }

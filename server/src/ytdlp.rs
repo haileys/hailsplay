@@ -12,7 +12,7 @@ use serde::Deserialize;
 
 use crate::fs::{SharedDir, SharedFile};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct Metadata {
     pub title: Option<String>,
     #[serde(rename = "fulltitle")]
@@ -270,7 +270,6 @@ impl YtdlpReader {
             0 => Ok(None),
             _ => {
                 let line = line.trim();
-                log::debug!("yt-dlp: {line}");
                 Ok(Some(parse_line(line)))
             }
         }

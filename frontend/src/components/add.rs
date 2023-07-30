@@ -2,26 +2,31 @@ use url::Url;
 use web_sys::HtmlInputElement;
 use hailsplay_protocol::Metadata;
 use yew::{prelude::*, html::Scope};
-use crate::util;
+use crate::util::{self, TaskHandle};
 
 pub struct Add {
     link: Scope<Self>,
-    state: State,
+    url: Option<Url>,
+    metadata: MetadataState,
     input: NodeRef,
-    // _handle: SubscribeHandle,
+}
+
+#[derive(Properties, PartialEq)]
+pub struct AddProps {
+    pub onsubmit: Callback<Url>,
 }
 
 type MetadataResult = Result<Metadata, gloo_net::Error>;
 
-enum State {
-    Default,
-    WaitingForMetadata(Url, util::TaskHandle),
-    Metadata(MetadataResult),
+#[derive(Debug)]
+enum MetadataState {
+    Value(Option<MetadataResult>),
+    Loading(TaskHandle),
 }
 
 pub enum AddMsg {
     Change,
-    Submit(web_sys::SubmitEvent),
+    Submit,
     Metadata(MetadataResult),
 }
 
@@ -36,85 +41,91 @@ impl Add {
         None
     }
 
-    fn fetch_metadata(&mut self) -> bool {
-        let Some(url) = self.input_url() else { return false; };
-
-        // don't send another request if inflight is the same url
-        match &self.state {
-            State::WaitingForMetadata(inflight_url, _) if inflight_url == &url => {
-                return false;
-            }
-            _ => {}
+    fn set_url(&mut self, url: Option<Url>) -> bool {
+        if self.url == url {
+            return false;
         }
 
-        let handle = util::link(&self.link)
-            .map(AddMsg::Metadata)
-            .spawn_cancellable({
-                let url = url.clone();
-                |abort| async move {
-                    let metadata = gloo_net::http::Request::get("/metadata")
-                        .query([("url", &url)])
-                        .abort_signal(Some(&abort))
-                        .build()
-                        .expect("gloo_net::http::RequestBuilder::build")
-                        .send()
-                        .await?
-                        .json::<Metadata>()
-                        .await?;
+        self.url = url.clone();
+        self.metadata = match url {
+            None => MetadataState::Value(None),
+            Some(url) => MetadataState::Loading(
+                util::link(&self.link)
+                    .map(AddMsg::Metadata)
+                    .spawn_cancellable({
+                        let url = url.clone();
+                        |abort| async move {
+                            let metadata = gloo_net::http::Request::get("/metadata")
+                                .query([("url", &url)])
+                                .abort_signal(Some(&abort))
+                                .build()
+                                .expect("gloo_net::http::RequestBuilder::build")
+                                .send()
+                                .await?
+                                .json::<Metadata>()
+                                .await?;
 
-                    Ok(metadata)
-                }
-            });
-
-        self.state = State::WaitingForMetadata(url, handle);
+                            Ok(metadata)
+                        }
+                    })
+            ),
+        };
+        
         true
+    }
+
+    fn take_url(&mut self) -> Option<Url> {
+        let url = self.url.take();
+        if url.is_some() {
+            self.metadata = MetadataState::Value(None);
+        }
+        url
     }
 }
 
 impl Component for Add {
-    type Properties = ();
+    type Properties = AddProps;
     type Message = AddMsg;
 
     fn create(ctx: &Context<Self>) -> Self {
         Add {
             link: ctx.link().clone(),
-            state: State::Default,
+            url: None,
+            metadata: MetadataState::Value(None),
             input: NodeRef::default(),
         }
     }
 
-    fn update(&mut self, _: &Context<Self>, msg: AddMsg) -> bool {
+    fn update(&mut self, ctx: &Context<Self>, msg: AddMsg) -> bool {
         match msg {
             AddMsg::Change => {
-                self.fetch_metadata();
+                self.set_url(self.input_url());
                 true
             }
-            AddMsg::Submit(_) => {
-                false
+            AddMsg::Submit => {
+                if let Some(url) = self.take_url() {
+                    ctx.props().onsubmit.emit(url);
+                }
+                true
             }
             AddMsg::Metadata(result) => {
-                match self.state {
-                    State::WaitingForMetadata(..) => {}
-                    _ => { return false; }
-                };
-
-                self.state = State::Metadata(result);
+                self.metadata = MetadataState::Value(Some(result));
                 true
             }
         }
     }
 
-    fn view(&self, _: &Context<Self>) -> Html {
+    fn view(&self, ctx: &Context<Self>) -> Html {
         html! {
             <div class="add">
-                {match &self.state {
-                    State::Default => html!{},
-                    State::WaitingForMetadata(..) => html!{
+                {match &self.metadata {
+                    MetadataState::Value(None) => html!{},
+                    MetadataState::Loading(..) => html!{
                         <div class="loading-spinner">
                             <div class="lds-spinner"><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div>
                         </div>
                     },
-                    State::Metadata(Ok(meta)) => html!{
+                    MetadataState::Value(Some(Ok(meta))) => html!{
                         <div class="add-preview">
                             <div class="preview-cover-art">
                                 {match &meta.thumbnail {
@@ -131,7 +142,7 @@ impl Component for Add {
                             </div>
                         </div>
                     },
-                    State::Metadata(Err(e)) => html! {
+                    MetadataState::Value(Some(Err(e))) => html! {
                         <div class="add-preview">
                             <div class="title">{format!("{e:?}")}</div>
                         </div>
@@ -145,12 +156,21 @@ impl Component for Add {
                     inputmode="url"
                     enterkeyhint="go"
                     ref={self.input.clone()}
-                    oninput={self.link.callback(|_| AddMsg::Change)}
-                    onpaste={self.link.callback(|_| AddMsg::Change)}
-                    onkeyup={self.link.callback(|_| AddMsg::Change)}
-                    onsubmit={self.link.callback(AddMsg::Submit)}
+                    oninput={ctx.link().callback(|_| AddMsg::Change)}
+                    onpaste={ctx.link().callback(|_| AddMsg::Change)}
+                    onkeyup={ctx.link().callback(on_key_up)}
+                    onsubmit={ctx.link().callback(|_| AddMsg::Submit)}
                 />
             </div>
         }
+    }
+}
+
+fn on_key_up(ev: KeyboardEvent) -> AddMsg {
+    if ev.key_code() == 13 {
+        ev.prevent_default();
+        AddMsg::Submit
+    } else {
+        AddMsg::Change
     }
 }
