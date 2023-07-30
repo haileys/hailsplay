@@ -3,7 +3,7 @@ use url::Url;
 use yew::prelude::*;
 
 use crate::components::Add;
-use crate::util::{cancellable, Cancelled, spawn_cancellable};
+use crate::util::{cancellable, spawn_cancellable};
 
 pub struct App;
 

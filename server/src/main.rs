@@ -7,10 +7,8 @@ mod mpd;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::path::Path;
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
-use std::task::Poll;
 
 use axum::Json;
 use axum::extract::{Query, State};
@@ -23,18 +21,16 @@ use axum::{
 };
 
 use axum::extract::connect_info::ConnectInfo;
-use axum::extract::ws::{self, Message, WebSocket, WebSocketUpgrade};
+use axum::extract::ws::{WebSocket, WebSocketUpgrade};
 
 use config::Config;
 use error::AppResult;
 use fs::WorkingDirectory;
-use futures::{FutureExt, future, Future, StreamExt};
 use log::LevelFilter;
 use mpd::Mpd;
-use serde::{Deserialize, Serialize};
-use tokio::sync::oneshot;
+use serde::Deserialize;
 use url::Url;
-use hailsplay_protocol::{ClientMessage, Metadata, MetadataResponse, ServerMessage};
+use hailsplay_protocol::Metadata;
 use uuid::Uuid;
 
 #[tokio::main]
@@ -57,11 +53,10 @@ async fn main() -> ExitCode {
 
 async fn run(config: Config) -> anyhow::Result<()> {
     let working = WorkingDirectory::open_or_create(&config.storage.working).await?;
-    let mpd = Mpd::connect(&config.mpd).await?;
-    let media_state = App::new(config, working, mpd);
+    let media_state = App::new(config, working);
 
     let app = Router::new()
-        .route("/queue/add", post(add))
+        .route("/queue/add", post(http::queue::add))
         .route("/queue", get(http::queue::index))
         .route("/media/:id/stream", get(http::media::stream))
         .route("/metadata", get(metadata))
@@ -109,7 +104,7 @@ pub struct MediaRecord {
 }
 
 impl App {
-    pub fn new(config: Config, working: WorkingDirectory, mpd: Mpd) -> Self {
+    pub fn new(config: Config, working: WorkingDirectory) -> Self {
         App(Arc::new(AppCtx {
             config,
             working,
@@ -127,47 +122,6 @@ async fn metadata(params: Query<MetadataParams>) -> AppResult<Json<Metadata>> {
     log::info!("Fetching metadata for {}", params.url);
     let metadata = request_metadata(&params.url).await?;
     Ok(Json(metadata))
-}
-
-#[derive(Deserialize)]
-struct Add {
-    url: Url,
-}
-
-#[derive(Serialize)]
-struct AddResponse {
-    mpd_id: mpd::Id,
-}
-
-#[axum::debug_handler]
-async fn add(app: State<App>, data: Json<Add>) -> AppResult<Json<AddResponse>> {
-    let id = uuid::Uuid::new_v4();
-
-    let dir = app.working_dir().create_dir(Path::new(&id.to_string())).await?;
-    let dir = dir.into_shared();
-
-    let download = ytdlp::start_download(dir, &data.url).await?;
-    let metadata = download.metadata.clone();
-    
-    {
-        let mut state = app.0.0.state.lock().unwrap();
-        state.media_by_url.insert(data.url.clone(), id);
-        state.media.insert(id, Arc::new(MediaRecord { 
-            url: data.url.clone(),
-            download,
-        }));
-    }
-
-    let stream_url = app.0.0.config.http.external_url
-        .join(&format!("media/{id}/stream"))?;
-
-    log::info!("Adding {}", metadata.title
-        .unwrap_or_else(|| data.url.to_string()));
-
-    let mut mpd = app.mpd().await?;
-    let mpd_id = mpd.addid(&stream_url).await?;
-
-    Ok(Json(AddResponse { mpd_id }))
 }
 
 async fn ws_handler(
@@ -198,7 +152,7 @@ async fn ws_handler(
     })
 }
 
-async fn handle_socket(app: State<App>, mut socket: WebSocket, _: SocketAddr) -> anyhow::Result<()> {
+async fn handle_socket(app: State<App>, _socket: WebSocket, _: SocketAddr) -> anyhow::Result<()> {
     let mut mpd = app.mpd().await?;
 
     loop {
@@ -211,8 +165,6 @@ async fn handle_socket(app: State<App>, mut socket: WebSocket, _: SocketAddr) ->
 
         log::debug!("changed -> {changed:?}");
     }
-
-    Ok(())
 }
 
 /*

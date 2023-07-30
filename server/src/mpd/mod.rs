@@ -2,7 +2,7 @@ pub mod protocol;
 
 use std::{str::FromStr, convert::Infallible};
 
-use anyhow::{Result, anyhow, bail, Context};
+use anyhow::{Result, Context};
 use serde::{Serialize, Deserialize};
 use tokio::net::UnixStream;
 use url::Url;
@@ -58,13 +58,8 @@ impl Mpd {
     }
 
     pub async fn addid(&mut self, uri: &Url) -> Result<Id> {
-        let mut resp = self.command("addid", &[&uri.to_string()]).await??;
-
-        let Some(id) = resp.attributes.get_one("Id") else {
-            bail!("no Id attribute in addid response");
-        };
-
-        Ok(Id(id.to_owned()))
+        let resp = self.command("addid", &[&uri.to_string()]).await??;
+        resp.attributes.get("Id")
     }
 
     pub async fn playlistinfo(&mut self) -> Result<Playlist> {

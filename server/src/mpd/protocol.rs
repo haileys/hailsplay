@@ -1,6 +1,4 @@
 use std::str::FromStr;
-use std::{collections::HashMap};
-use std::fmt::Display;
 
 use anyhow::{Context, anyhow, bail};
 use thiserror::Error;
@@ -18,8 +16,6 @@ pub struct Protocol {
 pub enum Error {
     #[error("io error")]
     Io(#[from] std::io::Error),
-    #[error("unexpected eof")]
-    UnexpectedEof,
     #[error("protocol error")]
     ProtocolError(#[from] anyhow::Error),
 }
@@ -146,10 +142,9 @@ impl Attributes {
     }
 
     pub fn split_at(self, name: &str) -> Vec<Attributes> {
-        let mut iter = self.attrs.into_iter();
         let mut splits = Vec::new();
 
-        for (k, v) in iter {
+        for (k, v) in self.attrs {
             if k == name {
                 splits.push(Attributes::default());
             }
@@ -162,6 +157,7 @@ impl Attributes {
         splits
     }
 
+    #[allow(unused)]
     pub fn iter(&self) -> impl Iterator<Item = (&'_ str, &'_ str)> {
         self.attrs.iter().map(|(k, v)| (k.as_str(), v.as_str()))
     }
