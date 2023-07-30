@@ -62,6 +62,7 @@ async fn run(config: Config) -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/queue/add", post(add))
+        .route("/queue", get(http::queue::index))
         .route("/media/:id/stream", get(http::media::stream))
         .route("/metadata", get(metadata))
         .route("/ws", get(ws_handler))
@@ -170,6 +171,7 @@ async fn add(app: State<App>, data: Json<Add>) -> AppResult<Json<AddResponse>> {
 }
 
 async fn ws_handler(
+    app: State<App>,
     ws: WebSocketUpgrade,
     user_agent: Option<TypedHeader<headers::UserAgent>>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -185,7 +187,7 @@ async fn ws_handler(
     ws.on_upgrade(move |socket| {
         async move {
             tokio::spawn(async move {
-                match handle_socket(socket, addr).await {
+                match handle_socket(app, socket, addr).await {
                     Ok(()) => {}
                     Err(e) => {
                         eprintln!("handle_socket returned error: {e:?}");
@@ -196,66 +198,24 @@ async fn ws_handler(
     })
 }
 
-#[derive(Default)]
-struct Session { 
-    inflight_metadata_request: Option<oneshot::Receiver<MetadataResponse>>,
-}
-
-async fn handle_socket(mut socket: WebSocket, _: SocketAddr) -> anyhow::Result<()> {
-    let mut session = Session::default();
+async fn handle_socket(app: State<App>, mut socket: WebSocket, _: SocketAddr) -> anyhow::Result<()> {
+    let mut mpd = app.mpd().await?;
 
     loop {
-        enum Event {
-            MetadataReady(MetadataResponse),
-            Socket(Option<Result<ws::Message, axum::Error>>),
-        }
+        let playlist = mpd.playlistinfo().await?;
 
-        let fut = future::poll_fn(|cx| {
-            if let Some(rx) = session.inflight_metadata_request.as_mut() {
-                if let Poll::Ready(result) = rx.poll_unpin(cx) {
-                    session.inflight_metadata_request = None;
-                    if let Ok(response) = result {
-                        return Poll::Ready(Event::MetadataReady(response));
-                    }
-                }
-            }
+        // do something with the playlist
+        log::debug!("playlist -> {playlist:?}");
 
-            if let Poll::Ready(result) = socket.poll_next_unpin(cx) {
-                return Poll::Ready(Event::Socket(result));
-            }
+        let changed = mpd.idle().await?;
 
-            Poll::Pending
-        });
-
-        match fut.await {
-            Event::MetadataReady(metadata) => {
-                let msg = ServerMessage::MetadataResponse(metadata);
-                let msg = ws::Message::Text(serde_json::to_string(&msg)?);
-                socket.send(msg).await?;
-            }
-            Event::Socket(None) => { break; }
-            Event::Socket(Some(result)) => {
-                let text = match result? {
-                    Message::Text(text) => text,
-                    Message::Close(_) => { break; }
-                    msg => {
-                        eprintln!("WARN: websocket connection received unknown message kind: {msg:?}");
-                        continue;
-                    }
-                };
-
-                let msg = serde_json::from_str::<ClientMessage>(&text)?;
-
-                println!("--> {msg:?}");
-
-                handle_message(msg, &mut session).await?;
-            }
-        }
+        log::debug!("changed -> {changed:?}");
     }
 
-    return Ok(())
+    Ok(())
 }
 
+/*
 async fn handle_message(msg: ClientMessage, session: &mut Session) -> anyhow::Result<()> {
     match msg {
         ClientMessage::MetadataRequest(request) => {
@@ -296,6 +256,7 @@ async fn handle_message(msg: ClientMessage, session: &mut Session) -> anyhow::Re
 
     Ok(())
 }
+*/
 
 async fn request_metadata(url: &Url) -> anyhow::Result<Metadata> {
     let metadata = ytdlp::fetch_metadata(url).await?;

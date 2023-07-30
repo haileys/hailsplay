@@ -1,7 +1,9 @@
-use std::{collections::HashMap, io};
+use std::str::FromStr;
+use std::{collections::HashMap};
 use std::fmt::Display;
 
-use anyhow::{Context, bail};
+use anyhow::{Context, anyhow, bail};
+use thiserror::Error;
 use tokio::io::{BufReader, AsyncRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub struct MpdReader {
@@ -10,6 +12,16 @@ pub struct MpdReader {
 
 pub struct Protocol {
     pub version: String,
+}
+
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("io error")]
+    Io(#[from] std::io::Error),
+    #[error("unexpected eof")]
+    UnexpectedEof,
+    #[error("protocol error")]
+    ProtocolError(#[from] anyhow::Error),
 }
 
 impl MpdReader {
@@ -32,8 +44,8 @@ impl MpdReader {
         Ok((reader, protocol))
     }
 
-    pub async fn read_response(&mut self) -> anyhow::Result<Response> {
-        let mut attributes = HashMap::new();
+    pub async fn read_response(&mut self) -> Result<Response, Error> {
+        let mut attributes = Attributes::default();
         let mut binary = None;
 
         let mut buff = String::new();
@@ -41,14 +53,14 @@ impl MpdReader {
             buff.truncate(0);
             self.r.read_line(&mut buff).await?;
             if buff.len() == 0 {
-                bail!("connection eof");
+                return Err(Error::ProtocolError(anyhow!("connection eof")));
             }
 
             let line = buff.trim_end();
             log::debug!("reading {line:?}");
 
             if line == "OK" {
-                return Ok(Ok(Ok {
+                return Ok(Ok(OkResponse {
                     attributes,
                     binary,
                 }));
@@ -56,27 +68,31 @@ impl MpdReader {
 
             if let Some(line) = prefixed("ACK ", line) {
                 let line = line.to_string();
-                return Ok(Err(Error { line }));
+                return Ok(Err(ErrorResponse { line }));
             }
             
             if let Some(len) = prefixed("binary: ", line) {
-                let len = len.parse().context("parsing length of binary data")?;
-                let mut bin = Vec::with_capacity(len);
-                self.r.read_exact(&mut bin).await.context("reading binary data")?;
-                let nl = self.r.read_u8().await.context("reading binary trailing newline")?;
-                if nl != b'\n' {
-                    bail!("binary data did not end with trailing newline");
-                }
-                binary = Some(bin);
+                binary = Some(self.read_binary(len).await?);
                 continue;
             }
 
             if let Some((key, value)) = line.split_once(": ") {
-                attributes.insert(key.to_string(), value.to_string());
+                attributes.attrs.push((key.to_string(), value.to_string()));
             } else {
-                bail!("unrecognised response line from mpd: {line:?}");
+                return Err(Error::ProtocolError(anyhow!("unrecognised response line from mpd: {line:?}")));
             }
         }
+    }
+
+    async fn read_binary(&mut self, len: &str) -> anyhow::Result<Vec<u8>> {
+        let len = len.parse().context("parsing length of binary data")?;
+        let mut bin = Vec::with_capacity(len);
+        self.r.read_exact(&mut bin).await.context("reading binary data")?;
+        let nl = self.r.read_u8().await.context("reading binary trailing newline")?;
+        if nl != b'\n' {
+            bail!("binary data did not end with trailing newline");
+        }
+        Ok(bin)
     }
 }
 
@@ -88,25 +104,67 @@ fn prefixed<'a>(prefix: &str, s: &'a str) -> Option<&'a str> {
     }
 }
 
-pub type Response = Result<Ok, Error>;
+pub type Response = Result<OkResponse, ErrorResponse>;
 
-#[derive(Debug)]
-pub struct Error {
+#[derive(Error, Debug)]
+#[error("command returned error: {line}")]
+pub struct ErrorResponse {
     pub line: String,
 }
 
-impl Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "mpd error response: {}", self.line)
-    }
+#[derive(Debug)]
+pub struct OkResponse {
+    pub attributes: Attributes,
+    pub binary: Option<Vec<u8>>,
 }
 
-impl std::error::Error for Error {}
+#[derive(Debug, Default)]
+pub struct Attributes {
+    attrs: Vec<(String, String)>
+}
 
-#[derive(Debug)]
-pub struct Ok {
-    pub attributes: HashMap<String, String>,
-    pub binary: Option<Vec<u8>>,
+impl Attributes {
+    pub fn get<T: FromStr<Err = E>, E: Send + Sync + std::error::Error + 'static>(&self, name: &str) -> anyhow::Result<T> {
+        Ok(self.get_one(name)
+            .ok_or_else(|| anyhow!("missing {name} attribute"))?
+            .parse()
+            .with_context(|| format!("malformed {name} attribute"))?)
+    }
+
+    pub fn get_one(&self, name: &str) -> Option<&'_ str> {
+        Some(&self.attrs.iter().find(|(k, _)| k == name)?.1)
+    }
+
+    pub fn get_all<'a, 'n: 'a>(&'a self, name: &'n str) -> impl Iterator<Item = &'a str> {
+        self.attrs.iter().filter_map(move |(k, v)| {
+            if k == name {
+                Some(v.as_str())
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn split_at(self, name: &str) -> Vec<Attributes> {
+        let mut iter = self.attrs.into_iter();
+        let mut splits = Vec::new();
+
+        for (k, v) in iter {
+            if k == name {
+                splits.push(Attributes::default());
+            }
+
+            if let Some(split) = splits.last_mut() {
+                split.attrs.push((k, v));
+            }
+        }
+
+        splits
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&'_ str, &'_ str)> {
+        self.attrs.iter().map(|(k, v)| (k.as_str(), v.as_str()))
+    }
 }
 
 pub struct MpdWriter {
