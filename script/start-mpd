@@ -1,0 +1,21 @@
+#!/bin/bash -e
+cd "$(dirname "$0")/.."
+
+MPD_DIR="$(pwd)/tmp/mpd"
+
+# create/reset mpd runtime dir
+mkdir -p "$MPD_DIR"
+rm -rf "$MPD_DIR/mpd.db" "$MPD_DIR/playlists" "$MPD_DIR/mpdstate"
+mkdir -p "$MPD_DIR/playlists"
+
+# configure mpd
+cat >"$MPD_DIR/mpd.conf" <<CONF
+bind_to_address "$MPD_DIR/mpd.sock"
+# pid_file "$MPD_DIR/mpd.pid"
+db_file "$MPD_DIR/mpd.db"
+state_file "$MPD_DIR/mpdstate"
+playlist_directory "$MPD_DIR/playlists"
+CONF
+
+# run mpd
+exec mpd --no-daemon "$MPD_DIR/mpd.conf"

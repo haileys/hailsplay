@@ -7,18 +7,17 @@ use headers::{ContentLength, AcceptRanges, Range, ContentRange};
 use tokio::{fs::File, sync::{mpsc, watch}};
 use tokio::io::{AsyncSeekExt, AsyncReadExt};
 use tokio_stream::wrappers::ReceiverStream;
-use uuid::Uuid;
 use futures::FutureExt;
 
-use crate::ytdlp::{Progress, DownloadHandle};
+use crate::{ytdlp::{Progress, DownloadHandle}, MediaId};
 use crate::error::AppError;
 use crate::App;
 
 const READ_BUFFER_SIZE: usize = 64 * 1024;
 
 pub async fn stream(
-    app: State<App>, 
-    Path(media_id): Path<Uuid>,
+    app: State<App>,
+    Path(media_id): Path<MediaId>,
     range: Option<TypedHeader<Range>>,
 ) -> Result<impl IntoResponse, MediaStreamError> {
     let media = {
@@ -133,7 +132,7 @@ pub async fn media_stream(handle: &DownloadHandle, range: Option<Range>)
     let (tx, rx) = mpsc::channel(1);
 
     tokio::spawn(run_stream(file, seek, tx, progress));
-    
+
     let content_range = range.map(|_| {
         ContentRange::bytes(seek_start..seek_end_excl, total_bytes).unwrap()
     });
@@ -143,7 +142,7 @@ pub async fn media_stream(handle: &DownloadHandle, range: Option<Range>)
         content_length: ContentLength(total_bytes),
         stream: tokio_stream::wrappers::ReceiverStream::new(rx),
     };
-    
+
     Ok(stream)
 }
 
@@ -197,7 +196,7 @@ async fn run_stream(
             Ok(0)
         });
         futures::pin_mut!(closed_fut);
-        
+
         let result = futures::future::select(read_fut, closed_fut)
             .await
             .factor_first()

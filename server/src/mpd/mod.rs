@@ -1,4 +1,5 @@
 pub mod protocol;
+pub mod playlist;
 
 use std::{str::FromStr, convert::Infallible};
 
@@ -15,7 +16,7 @@ pub struct Mpd {
     conn: Conn,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct Id(String);
 
 impl FromStr for Id {
@@ -23,6 +24,12 @@ impl FromStr for Id {
 
     fn from_str(s: &str) -> Result<Self, Infallible> {
         Ok(Id(s.to_string()))
+    }
+}
+
+impl Into<hailsplay_protocol::PlaylistItemId> for Id {
+    fn into(self) -> hailsplay_protocol::PlaylistItemId {
+        hailsplay_protocol::PlaylistItemId(self.0)
     }
 }
 
@@ -86,6 +93,11 @@ impl Mpd {
             .map(|v| v.to_string())
             .collect();
         Ok(Changed { subsystems })
+    }
+
+    pub async fn play(&mut self) -> Result<()> {
+        self.command("play", &[]).await??;
+        Ok(())
     }
 }
 

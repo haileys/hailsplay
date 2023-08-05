@@ -4,8 +4,8 @@ internal_url = "http://127.0.0.1:3000/"
 external_url = "http://10.1.1.6:3000/"
 
 [mpd]
-socket = "/run/user/1000/mpd/mpd.sock"
+socket = "tmp/mpd/mpd.sock"
 
 [storage]
-archive = "archive"
-working = "working"
+archive = "tmp/archive"
+working = "tmp/working"

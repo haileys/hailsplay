@@ -8,22 +8,18 @@ mod mpd;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::process::ExitCode;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use axum::Json;
-use axum::extract::{Query, State};
+use axum::extract::Query;
 use axum::routing::post;
 use axum::{
-    response::IntoResponse,
     routing::get,
     Router,
-    extract::TypedHeader,
 };
 
-use axum::extract::connect_info::ConnectInfo;
-use axum::extract::ws::{WebSocket, WebSocketUpgrade};
-
 use config::Config;
+use derive_more::{Display, FromStr};
 use error::AppResult;
 use fs::WorkingDirectory;
 use log::LevelFilter;
@@ -60,7 +56,7 @@ async fn run(config: Config) -> anyhow::Result<()> {
         .route("/queue", get(http::queue::index))
         .route("/media/:id/stream", get(http::media::stream))
         .route("/metadata", get(metadata))
-        .route("/ws", get(ws_handler))
+        .route("/ws", get(http::ws::handler))
         .with_state(media_state);
 
     let fut = axum::Server::bind(&"0.0.0.0:3000".parse()?)
@@ -84,6 +80,10 @@ impl App {
     pub fn working_dir(&self) -> &WorkingDirectory {
         &self.0.working
     }
+
+    pub fn lock_state(&self) -> MutexGuard<AppState> {
+        self.0.state.lock().unwrap()
+    }
 }
 
 pub struct AppCtx {
@@ -94,13 +94,23 @@ pub struct AppCtx {
 
 #[derive(Default)]
 pub struct AppState {
-    pub media_by_url: HashMap<Url, Uuid>,
-    pub media: HashMap<Uuid, Arc<MediaRecord>>, 
+    pub media_by_url: HashMap<Url, MediaId>,
+    pub media: HashMap<MediaId, Arc<MediaRecord>>,
 }
+
+#[derive(Debug, Display, Deserialize, FromStr, Clone, Copy, Hash, PartialEq, Eq)]
+#[display(fmt = "{}", "self.0")]
+pub struct MediaId(pub Uuid);
 
 pub struct MediaRecord {
     pub url: Url,
     pub download: ytdlp::DownloadHandle,
+}
+
+impl MediaRecord {
+    pub fn metadata(&self) -> &ytdlp::Metadata {
+        &self.download.metadata
+    }
 }
 
 impl App {
@@ -123,92 +133,6 @@ async fn metadata(params: Query<MetadataParams>) -> AppResult<Json<Metadata>> {
     let metadata = request_metadata(&params.url).await?;
     Ok(Json(metadata))
 }
-
-async fn ws_handler(
-    app: State<App>,
-    ws: WebSocketUpgrade,
-    user_agent: Option<TypedHeader<headers::UserAgent>>,
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
-) -> impl IntoResponse {
-    let user_agent = if let Some(TypedHeader(user_agent)) = user_agent {
-        user_agent.to_string()
-    } else {
-        String::from("Unknown browser")
-    };
-    println!("`{user_agent}` at {addr} connected.");
-    // finalize the upgrade process by returning upgrade callback.
-    // we can customize the callback by sending additional info such as address.
-    ws.on_upgrade(move |socket| {
-        async move {
-            tokio::spawn(async move {
-                match handle_socket(app, socket, addr).await {
-                    Ok(()) => {}
-                    Err(e) => {
-                        eprintln!("handle_socket returned error: {e:?}");
-                    }
-                }
-            });
-        }
-    })
-}
-
-async fn handle_socket(app: State<App>, _socket: WebSocket, _: SocketAddr) -> anyhow::Result<()> {
-    let mut mpd = app.mpd().await?;
-
-    loop {
-        let playlist = mpd.playlistinfo().await?;
-
-        // do something with the playlist
-        log::debug!("playlist -> {playlist:?}");
-
-        let changed = mpd.idle().await?;
-
-        log::debug!("changed -> {changed:?}");
-    }
-}
-
-/*
-async fn handle_message(msg: ClientMessage, session: &mut Session) -> anyhow::Result<()> {
-    match msg {
-        ClientMessage::MetadataRequest(request) => {
-            let (mut tx, rx) = oneshot::channel();
-            session.inflight_metadata_request = Some(rx);
-
-            tokio::spawn(async move {
-                let request_id = request.request_id;
-
-                let metadata_fut = request_metadata(&request.url)
-                    .map(|result| {
-                        MetadataResponse {
-                            request_id: request_id,
-                            result: result.map_err(|e| format!("{e:?}")),
-                        }
-                    });
-
-                futures::pin_mut!(metadata_fut);
-
-                let fut = future::poll_fn(|cx| {
-                    if let Poll::Ready(()) = tx.poll_closed(cx) {
-                        return Poll::Ready(None);
-                    }
-
-                    if let Poll::Ready(response) = metadata_fut.as_mut().poll(cx) {
-                        return Poll::Ready(Some(response));
-                    }
-
-                    Poll::Pending
-                });
-
-                if let Some(response) = fut.await {
-                    let _ = tx.send(response);
-                }
-            });
-        }
-    }
-
-    Ok(())
-}
-*/
 
 async fn request_metadata(url: &Url) -> anyhow::Result<Metadata> {
     let metadata = ytdlp::fetch_metadata(url).await?;

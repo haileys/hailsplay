@@ -14,7 +14,7 @@ impl<T: Clone + 'static> Subscriber<T> {
             let inner = self.inner.borrow_mut();
             inner.subscribers.clone()
         };
-        
+
         for sub in subscribers {
             sub.1.emit(val.clone());
         }

@@ -1,3 +1,5 @@
+// pub mod watch;
+
 use std::marker::PhantomData;
 
 use web_sys::{AbortController, AbortSignal};
@@ -40,6 +42,22 @@ pub fn cancellable<Fut>(func: impl FnOnce(AbortSignal) -> Fut + 'static)
                 Err(Cancelled)
             }
         })
+}
+
+#[allow(unused)]
+pub fn spawn_task<Fut>(func: impl FnOnce(AbortSignal) -> Fut + 'static) -> TaskHandle
+    where Fut: Future<Output = ()> + 'static
+{
+    let controller = AbortController::new()
+        .expect("AbortController::new");
+
+    let signal = controller.signal();
+
+    wasm_bindgen_futures::spawn_local(func(signal));
+
+    TaskHandle {
+        controller
+    }
 }
 
 pub fn spawn_cancellable(fut: impl Future<Output = Result<(), Cancelled>> + 'static) {
@@ -88,7 +106,7 @@ impl<C: BaseComponent, T, F> LinkMap<C, T, F>
 
         let controller = AbortController::new()
             .expect("AbortController::new");
-    
+
         let signal = controller.signal();
 
         wasm_bindgen_futures::spawn_local(async move {
@@ -97,9 +115,9 @@ impl<C: BaseComponent, T, F> LinkMap<C, T, F>
                 scope.send_message(map(result));
             }
         });
-    
+
         TaskHandle { controller }
-    }    
+    }
 }
 
 #[derive(Debug)]

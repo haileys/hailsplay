@@ -16,7 +16,7 @@ pub struct AddProps {
     pub onsubmit: Callback<Url>,
 }
 
-type MetadataResult = Result<Metadata, gloo_net::Error>;
+type MetadataResult = Result<Metadata, gloo::net::Error>;
 
 #[derive(Debug)]
 enum MetadataState {
@@ -55,7 +55,7 @@ impl Add {
                     .spawn_cancellable({
                         let url = url.clone();
                         |abort| async move {
-                            let metadata = gloo_net::http::Request::get("/metadata")
+                            let metadata = gloo::net::http::Request::get("/metadata")
                                 .query([("url", &url)])
                                 .abort_signal(Some(&abort))
                                 .build()
@@ -70,7 +70,7 @@ impl Add {
                     })
             ),
         };
-        
+
         true
     }
 

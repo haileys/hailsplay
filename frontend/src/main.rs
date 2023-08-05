@@ -2,6 +2,7 @@ mod app;
 mod components;
 mod util;
 mod subscribe;
+mod session;
 
 use app::App;
 
