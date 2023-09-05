@@ -14,11 +14,11 @@ export default function Footer() {
 
     return (
         <div className={css.footer}>
-            <button onClick={() => setModal("add-url")}>
+            <button onClick={() => setModal({t: "add-url"})}>
                 <PlusIcon />
                 <span>Add</span>
             </button>
-            <button onClick={() => setModal("select-radio-station")}>
+            <button onClick={() => setModal({t: "select-radio-station"})}>
                 <RadioIcon />
                 <span>Radio</span>
             </button>

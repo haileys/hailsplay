@@ -4,20 +4,55 @@
     gap:1rem;
 }
 
+.loadingSpinnerFullWidth {
+    display:flex;
+    align-items:center;
+    justify-content:center;
+}
+
+.inputBar {
+    display:flex;
+    flex-flow:row nowrap;
+    align-items:center;
+    gap:0.5rem;
+}
+
 .urlInput {
+    flex-grow:1;
+    height:3rem;
     font-size:1rem;
     padding:1rem;
     outline:none;
     border:none;
-    border-radius:1rem;
+    border-radius:1.2rem;
     border:1px solid var(--url-input-border-color);
     background-color:var(--url-input-background-color);
     color:var(--url-input-text-color);
-  }
+}
+
+.addButton {
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    width:3rem;
+    height:3rem;
+    border-radius:1.2rem;
+    border:none;
+    background:var(--primary-action-button-background-color);
+    color:var(--primary-action-button-stroke-color);
+}
+
+.addButtonInactive {
+    background:var(--inactive-action-button-background-color);
+}
 
 .loadingSpinner {
-    width:40px;
-    height:40px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    width:3rem;
+    height:3rem;
+    color:var(--inactive-action-button-background-color);
 }
 
 .addPreview {

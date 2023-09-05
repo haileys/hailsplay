@@ -1,64 +1,53 @@
 import { JSX, createRef } from "preact";
-import { useEffect, useState } from "preact/hooks";
-import { queueAdd } from "../api";
+import { useContext, useEffect, useState } from "preact/hooks";
+import { Url, queueAdd } from "../api";
 
+import { ReactComponent as PlusIcon } from "feather-icons/dist/icons/plus.svg";
 import css from "./AddUrl.module.css";
 import spinnerCss from "../spinner.module.css";
 
-import { Metadata, metadata } from "../api";
+import { Metadata, metadata, catchAbortErrors } from "../api";
+import { ModalContext } from "../routes";
 
-type PreviewState
-    = { state: "none" }
+type ViewState =
+    | { state: "form" }
+    | { state: "adding", controller: AbortController }
+    ;
+
+export default function AddUrl() {
+    const { setModal } = useContext(ModalContext);
+
+    let [view, setView] = useState<ViewState>({ state: "form" });
+
+    if (view.state === "form") {
+        let onsubmit = (url: string) => {
+            let controller = new AbortController();
+
+            catchAbortErrors(queueAdd(url, controller.signal))
+                .then((result) => {
+                    setModal(null);
+                });
+
+            setView({ state: "adding", controller: controller });
+        };
+
+        return (<Form onsubmit={onsubmit} />);
+    } else {
+        return (
+            <div class={css.loadingSpinnerFullWidth}>
+                <LoadingSpinner />
+            </div>
+        );
+    }
+}
+
+type PreviewState =
+    | { state: "none" }
     | { state: "loading", url: string, controller: AbortController }
     | { state: "ready", url: string, metadata: Metadata }
     ;
 
-function fetchMetadata(url: string, signal: AbortSignal): Promise<Metadata | null> {
-    return metadata(url, signal)
-        .catch((error) => {
-            // silence abort errors
-            if (error instanceof DOMException) {
-                if (error.name === "AbortError") {
-                    return null;
-                }
-            }
-
-            throw error;
-        });
-}
-
-function renderPreview(preview: PreviewState) {
-    switch (preview.state) {
-        case "none":
-            return null;
-
-        case "loading":
-            return (
-                <div className={css.loadingSpinner}>
-                    <div className={spinnerCss.spinner}><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div>
-                </div>
-            );
-
-        case "ready":
-            return (
-                <div className={css.addPreview}>
-                    <div className={css.previewCoverArt}>
-                        {preview.metadata.thumbnail ? (
-                            <img src={preview.metadata.thumbnail} />
-                        ) : null}
-                    </div>
-                    <div className={css.previewDetails}>
-                        <div class={css.previewTitle}>{preview.metadata.title}</div>
-                        {preview.metadata.artist ? (
-                            <div class={css.previewArtist}>{preview.metadata.artist}</div>
-                        ) : null}
-                    </div>
-                </div>
-            );
-    }
-}
-
-export default function AddUrl() {
+function Form(props: { onsubmit(_: Url): void }) {
     let [url, setUrl] = useState("");
     let [preview, setPreview] = useState<PreviewState>({ state: "none" });
 
@@ -86,7 +75,7 @@ export default function AddUrl() {
 
         // send new metadata request
         let controller = new AbortController();
-        fetchMetadata(url, controller.signal).then((metadata) => {
+        catchAbortErrors(metadata(url, controller.signal)).then((metadata) => {
             if (metadata !== null) {
                 setPreview({ state: "ready", url, metadata });
             }
@@ -98,26 +87,82 @@ export default function AddUrl() {
 
     let onSubmit = async () => {
         if (url !== "") {
-            await queueAdd(url);
-            // TODO error handling
+            props.onsubmit(url);
         }
     };
 
     return (
-        <div className={css.addUrl}>
+        <div class={css.addUrl}>
             {renderPreview(preview)}
-            <input
-                ref={input}
-                value={url}
-                onInput={onInput}
-                onSubmit={onSubmit}
-                className={css.urlInput}
-                type="text"
-                placeholder="Media URL"
-                inputMode="url"
-                enterkeyhint="go"
-                autoFocus={true}
-            />
+            <div class={css.inputBar}>
+                <input
+                    ref={input}
+                    value={url}
+                    onInput={onInput}
+                    onSubmit={onSubmit}
+                    class={css.urlInput}
+                    type="text"
+                    placeholder="Media URL"
+                    inputMode="url"
+                    enterkeyhint="go"
+                    autoFocus={true}
+                />
+                {renderButton(preview, onSubmit)}
+            </div>
         </div>
-    )
+    );
+}
+
+function renderPreview(preview: PreviewState) {
+    switch (preview.state) {
+        case "none":
+        case "loading":
+            return null;
+
+        case "ready":
+            return (
+                <div className={css.addPreview}>
+                    <div className={css.previewCoverArt}>
+                        {preview.metadata.thumbnail ? (
+                            <img src={preview.metadata.thumbnail} />
+                        ) : null}
+                    </div>
+                    <div className={css.previewDetails}>
+                        <div class={css.previewTitle}>{preview.metadata.title}</div>
+                        {preview.metadata.artist ? (
+                            <div class={css.previewArtist}>{preview.metadata.artist}</div>
+                        ) : null}
+                    </div>
+                </div>
+            );
+    }
+}
+
+function renderButton(preview: PreviewState, onclick: () => void) {
+    switch (preview.state) {
+        case "none":
+            return (
+                <button class={`${css.addButton} ${css.addButtonInactive}`} onClick={onclick}>
+                    <PlusIcon />
+                </button>
+            );
+
+        case "ready":
+            return (
+                <button class={css.addButton} onClick={onclick}>
+                    <PlusIcon />
+                </button>
+            );
+
+        case "loading":
+            return (<LoadingSpinner />);
+    }
+}
+
+function LoadingSpinner() {
+    return (
+        <div class={css.loadingSpinner}>
+            <div class={spinnerCss.spinner}><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div>
+        </div>
+    );
 }

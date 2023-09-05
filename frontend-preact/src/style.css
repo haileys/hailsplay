@@ -30,6 +30,10 @@ body {
     --url-input-border-color:#d9d9d9;
     --url-input-background-color:#efefef;
     --url-input-text-color:#111111;
+
+    --inactive-action-button-background-color:#d9d9d9;
+    --primary-action-button-background-color:#1c8aff;
+    --primary-action-button-stroke-color:#ffffff;
 }
 
 html,

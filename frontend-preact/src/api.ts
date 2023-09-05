@@ -10,13 +10,27 @@ export type QueueAddResult = {
     mpd_id: string,
 };
 
-export async function queueAdd(url: Url): Promise<QueueAddResult> {
+export function catchAbortErrors<T>(promise: Promise<T>): Promise<T | null> {
+    return promise.catch((error) => {
+        // silence abort errors
+        if (error instanceof DOMException) {
+            if (error.name === "AbortError") {
+                return null;
+            }
+        }
+
+        throw error;
+    });
+}
+
+export async function queueAdd(url: Url, abortSignal: AbortSignal | null): Promise<QueueAddResult> {
     let response = await fetch("/api/queue/add", {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
         },
-        body: JSON.stringify({ url })
+        body: JSON.stringify({ url }),
+        signal: abortSignal,
     });
 
     return response.json();

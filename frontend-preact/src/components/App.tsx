@@ -1,5 +1,5 @@
 import { RouteContext, ModalContext, RouteId, ModalId, defaultRoute } from "../routes";
-import { useState } from "preact/hooks";
+import { useErrorBoundary, useState } from "preact/hooks";
 
 import Footer from "./Footer";
 import Modal from "./Modal";
@@ -7,7 +7,11 @@ import SelectRadioStation from "./SelectRadioStation";
 import AddUrl from "./AddUrl";
 
 function renderModal(modal: ModalId) {
-    switch (modal) {
+    if (modal === null) {
+        return null;
+    }
+
+    switch (modal.t) {
         case null:
             return null;
         case "select-radio-station":
@@ -22,12 +26,22 @@ function renderModal(modal: ModalId) {
                     <AddUrl />
                 </Modal>
             );
+        case "error":
+            return (
+                <Modal title="Application error">
+                    {modal.message}
+                </Modal>
+            )
     }
 }
 
 export function App() {
     const [ route, setRoute ] = useState<RouteId>(defaultRoute);
     const [ modal, setModal ] = useState<ModalId>(null);
+
+    // useErrorBoundary((error, errorInfo) => {
+    //     setModal({ t: "error", message: error.toString() });
+    // });
 
 	return (
 		<RouteContext.Provider value={{ route, setRoute }}>

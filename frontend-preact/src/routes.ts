@@ -4,8 +4,9 @@ import { StateUpdater, useState } from "preact/hooks";
 export type RouteId = "index";
 
 export type ModalId = null
-    | "select-radio-station"
-    | "add-url"
+    | { t: "error", message: string }
+    | { t: "select-radio-station" }
+    | { t: "add-url" }
     ;
 
 export const defaultRoute: RouteId = "index";
