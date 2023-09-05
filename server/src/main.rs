@@ -54,8 +54,8 @@ async fn run(config: Config) -> anyhow::Result<()> {
     let app = App::new(config, working);
 
     let router = Router::new()
-        .route("/api/queue/add", post(http::queue::add))
-        .route("/api/queue", get(http::queue::index))
+        .route("/api/player/queue", post(http::queue::add))
+        .route("/api/player/queue", get(http::queue::index))
         .route("/api/metadata", get(metadata))
         .route("/media/:id/stream", get(http::media::stream))
         .route("/ws", get(http::ws::handler))
