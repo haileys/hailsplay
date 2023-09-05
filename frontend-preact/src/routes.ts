@@ -2,7 +2,11 @@ import { createContext } from "preact";
 import { StateUpdater, useState } from "preact/hooks";
 
 export type RouteId = "index";
-export type ModalId = null | "select-radio-station";
+
+export type ModalId = null
+    | "select-radio-station"
+    | "add-url"
+    ;
 
 export const defaultRoute: RouteId = "index";
 

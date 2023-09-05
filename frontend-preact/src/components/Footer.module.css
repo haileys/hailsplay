@@ -1,0 +1,27 @@
+.footer {
+    display:flex;
+    flex-flow:row nowrap;
+}
+
+.footer button {
+    flex-grow:1;
+    display:flex;
+    flex-flow:row nowrap;
+    justify-content:center;
+    align-items:center;
+    gap:0.5rem;
+    background:none;
+    outline:none;
+    border:none;
+    height:4rem;
+    color:var(--tabs-text-color);
+}
+
+.footer button:active {
+    color:var(--tabs-text-color-active);
+}
+
+.footer button span {
+    display:inline-block;
+    font-size:1rem;
+}

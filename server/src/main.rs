@@ -52,10 +52,10 @@ async fn run(config: Config) -> anyhow::Result<()> {
     let media_state = App::new(config, working);
 
     let app = Router::new()
-        .route("/queue/add", post(http::queue::add))
-        .route("/queue", get(http::queue::index))
+        .route("/api/queue/add", post(http::queue::add))
+        .route("/api/queue", get(http::queue::index))
+        .route("/api/metadata", get(metadata))
         .route("/media/:id/stream", get(http::media::stream))
-        .route("/metadata", get(metadata))
         .route("/ws", get(http::ws::handler))
         .with_state(media_state);
 

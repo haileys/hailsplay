@@ -8,14 +8,14 @@
 		"preview": "vite preview"
 	},
 	"dependencies": {
-		"feather-icons": "^4.29",
 		"preact": "^10.13.1",
-		"preact-material-components": "^1.6.1"
+		"feather-icons": "^4.29"
 	},
 	"devDependencies": {
 		"@preact/preset-vite": "^2.5.0",
 		"@types/node": "^20.5.9",
 		"typescript": "^5.2.2",
-		"vite": "^4.3.2"
+		"vite": "^4.3.2",
+		"vite-plugin-svgr": "^3.2.0"
 	}
 }

@@ -45,8 +45,8 @@
 .sheet {
     position:absolute;
     left:0px;
-    bottom:calc(0px - env(safe-area-inset-bottom) - env(safe-area-inset-top));
-    padding-bottom:env(safe-area-inset-bottom);
+    bottom:calc(0px - env(safe-area-inset-top));
+    /* padding-bottom:env(safe-area-inset-bottom); */
 
     z-index:1;
     width:100%;

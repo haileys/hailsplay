@@ -4,6 +4,7 @@ import { useState } from "preact/hooks";
 import Footer from "./Footer";
 import Modal from "./Modal";
 import SelectRadioStation from "./SelectRadioStation";
+import AddUrl from "./AddUrl";
 
 function renderModal(modal: ModalId) {
     switch (modal) {
@@ -13,6 +14,12 @@ function renderModal(modal: ModalId) {
             return (
                 <Modal title="Radio">
                     <SelectRadioStation />
+                </Modal>
+            );
+        case "add-url":
+            return (
+                <Modal title="Add online media">
+                    <AddUrl />
                 </Modal>
             );
     }
