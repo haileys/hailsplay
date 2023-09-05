@@ -24,7 +24,7 @@ export function catchAbortErrors<T>(promise: Promise<T>): Promise<T | null> {
 }
 
 export async function queueAdd(url: Url, abortSignal: AbortSignal | null): Promise<QueueAddResult> {
-    let response = await fetch("/api/player/queue", {
+    let response = await fetch("/api/queue", {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
