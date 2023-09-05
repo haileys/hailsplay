@@ -1,7 +1,7 @@
 import type { ComponentChildren } from "preact";
 import { useContext } from "preact/hooks";
-import { ModalContext } from "./App";
 import closeIcon from "feather-icons/dist/icons/x.svg";
+import { ModalContext } from "../routes";
 import css from "./Modal.module.css";
 
 type Props = {

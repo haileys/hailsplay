@@ -2,7 +2,7 @@ import feedIcon from "feathericon/build/svg/feed.svg";
 import plusIcon from "feathericon/build/svg/plus.svg";
 import AddUrl from "./AddUrl";
 import { useContext } from "preact/hooks";
-import { ModalContext } from "./App";
+import { ModalContext } from "../routes";
 
 export default function Footer() {
     const { setModal } = useContext(ModalContext);

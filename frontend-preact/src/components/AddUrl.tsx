@@ -1,40 +1,28 @@
-import { Component, JSX } from "preact";
-import { ActionProps } from "./Footer";
+import { JSX, createRef } from "preact";
 import { useState } from "preact/hooks";
+import { queueAdd } from "../api";
 
-// export default class AddUrl extends Component {
-//     state = { url: "" };
-
-//     onInput = ev => {
-//         let { value }= ev.target;
-//         this.setState({ value });
-//     }
-// }
-
-export default function AddUrl(props: ActionProps) {
+export default function AddUrl() {
     let [url, setUrl] = useState("");
+    let input = createRef<HTMLInputElement>();
 
-    let onInput = (ev: JSX.TargetedEvent<HTMLInputElement, Event>) => {
-        if (ev.target) {
-            setUrl(ev.target.value);
-        }
-    };
-
-    let onSubmit = () => {
-        console.log(url);
+    let onSubmit = async () => {
+        await queueAdd(url);
+        // TODO error handling
     };
 
     return (
         <div class="add">
             <input
+                ref={input}
                 value={url}
-                class="url-input"
+                onInput={() => input.current && setUrl(input.current.value)}
+                onSubmit={onSubmit}
+                className="url-input"
                 type="text"
                 placeholder="Add URL..."
                 inputMode="url"
                 enterkeyhint="go"
-                onInput={onInput}
-                onSubmit={onSubmit}
             />
         </div>
     )
