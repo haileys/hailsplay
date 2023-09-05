@@ -1,9 +1,10 @@
-mod error;
-mod ytdlp;
 mod config;
+mod error;
+mod frontend;
 mod fs;
 mod http;
 mod mpd;
+mod ytdlp;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -58,6 +59,8 @@ async fn run(config: Config) -> anyhow::Result<()> {
         .route("/media/:id/stream", get(http::media::stream))
         .route("/ws", get(http::ws::handler))
         .with_state(media_state);
+
+    let app = frontend::serve(app);
 
     let fut = axum::Server::bind(&"0.0.0.0:3000".parse()?)
         .serve(app.into_make_service_with_connect_info::<SocketAddr>());

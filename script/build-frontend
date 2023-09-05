@@ -1,0 +1,14 @@
+#!/bin/bash
+set -eu
+cd "$(dirname "$0")/../frontend-preact"
+
+declare -a VITE_ARGS
+VITE_ARGS=()
+
+if [ -n "${OUT_DIR:-}" ]; then
+    VITE_ARGS+=(--outDir "$OUT_DIR")
+fi
+
+set -x
+npm i
+node_modules/.bin/vite build "${VITE_ARGS[@]}" --manifest
