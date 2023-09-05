@@ -50,20 +50,21 @@ async fn main() -> ExitCode {
 
 async fn run(config: Config) -> anyhow::Result<()> {
     let working = WorkingDirectory::open_or_create(&config.storage.working).await?;
-    let media_state = App::new(config, working);
 
-    let app = Router::new()
+    let app = App::new(config, working);
+
+    let router = Router::new()
         .route("/api/queue/add", post(http::queue::add))
         .route("/api/queue", get(http::queue::index))
         .route("/api/metadata", get(metadata))
         .route("/media/:id/stream", get(http::media::stream))
         .route("/ws", get(http::ws::handler))
-        .with_state(media_state);
+        .with_state(app);
 
-    let app = frontend::serve(app);
+    let router = frontend::serve(router);
 
     let fut = axum::Server::bind(&"0.0.0.0:3000".parse()?)
-        .serve(app.into_make_service_with_connect_info::<SocketAddr>());
+        .serve(router.into_make_service_with_connect_info::<SocketAddr>());
 
     log::info!("Listening on 0.0.0.0:3000");
 
