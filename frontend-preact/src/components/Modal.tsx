@@ -1,6 +1,6 @@
 import type { ComponentChildren } from "preact";
 import { useContext } from "preact/hooks";
-import closeIcon from "feather-icons/dist/icons/x.svg";
+import { ReactComponent as CloseIcon } from "feather-icons/dist/icons/x.svg";
 import { ModalContext } from "../routes";
 import css from "./Modal.module.css";
 
@@ -21,7 +21,7 @@ export default function Modal(props: Props) {
                         {props.title}
                     </div>
                     <button className={css.closeButton} onClick={() => setModal(null)}>
-                        <img src={closeIcon} />
+                        <CloseIcon />
                     </button>
                 </div>
                 <div className={css.content}>

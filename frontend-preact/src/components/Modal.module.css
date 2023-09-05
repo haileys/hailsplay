@@ -75,13 +75,11 @@
     outline:none;
     border:none;
     background:none;
-    width:2rem;
-    height:2rem;
 }
 
-.closeButton > img {
-    width:2rem;
-    height:2rem;
+.closeButton > svg {
+    width:100%;
+    height:100%;
 }
 
 .content {
