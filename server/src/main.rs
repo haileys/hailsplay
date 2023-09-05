@@ -11,23 +11,13 @@ use std::net::SocketAddr;
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use axum::Json;
-use axum::extract::Query;
-use axum::routing::post;
-use axum::{
-    routing::get,
-    Router,
-};
-
 use config::Config;
 use derive_more::{Display, FromStr};
-use error::AppResult;
 use fs::WorkingDirectory;
 use log::LevelFilter;
 use mpd::Mpd;
 use serde::Deserialize;
 use url::Url;
-use hailsplay_protocol::Metadata;
 use uuid::Uuid;
 
 #[tokio::main]
@@ -52,15 +42,7 @@ async fn run(config: Config) -> anyhow::Result<()> {
     let working = WorkingDirectory::open_or_create(&config.storage.working).await?;
 
     let app = App::new(config, working);
-
-    let router = Router::new()
-        .route("/api/player/queue", post(http::queue::add))
-        .route("/api/player/queue", get(http::queue::index))
-        .route("/api/metadata", get(metadata))
-        .route("/media/:id/stream", get(http::media::stream))
-        .route("/ws", get(http::ws::handler))
-        .with_state(app);
-
+    let router = http::routes(app);
     let router = frontend::serve(router);
 
     let fut = axum::Server::bind(&"0.0.0.0:3000".parse()?)
@@ -125,25 +107,4 @@ impl App {
             state: Default::default(),
         }))
     }
-}
-
-#[derive(Deserialize)]
-struct MetadataParams {
-    url: Url,
-}
-
-async fn metadata(params: Query<MetadataParams>) -> AppResult<Json<Metadata>> {
-    log::info!("Fetching metadata for {}", params.url);
-    let metadata = request_metadata(&params.url).await?;
-    Ok(Json(metadata))
-}
-
-async fn request_metadata(url: &Url) -> anyhow::Result<Metadata> {
-    let metadata = ytdlp::fetch_metadata(url).await?;
-
-    Ok(Metadata {
-        title: metadata.title.unwrap_or_else(|| url.to_string()),
-        artist: metadata.uploader,
-        thumbnail: metadata.thumbnail,
-    })
 }
