@@ -4,10 +4,10 @@ import { Url, queueAdd } from "../api";
 
 import { ReactComponent as PlusIcon } from "feather-icons/dist/icons/plus.svg";
 import css from "./AddUrl.module.css";
-import spinnerCss from "../spinner.module.css";
 
 import { Metadata, metadata } from "../api";
 import { ModalContext } from "../routes";
+import { LoadingSpinner, LoadingSpinnerBlock } from "./LoadingSpinner";
 
 type ViewState =
     | { state: "form" }
@@ -23,21 +23,16 @@ export default function AddUrl() {
         let onsubmit = (url: string) => {
             let controller = new AbortController();
 
-            catchAbortErrors(queueAdd(url, controller.signal))
-                .then((result) => {
-                    setModal(null);
-                });
+            queueAdd(url, controller.signal).then((result) => {
+                setModal(null);
+            });
 
             setView({ state: "adding", controller: controller });
         };
 
         return (<Form onsubmit={onsubmit} />);
     } else {
-        return (
-            <div class={css.loadingSpinnerFullWidth}>
-                <LoadingSpinner />
-            </div>
-        );
+        return (<LoadingSpinnerBlock />);
     }
 }
 
@@ -157,12 +152,4 @@ function renderButton(preview: PreviewState, onclick: () => void) {
         case "loading":
             return (<LoadingSpinner />);
     }
-}
-
-function LoadingSpinner() {
-    return (
-        <div class={css.loadingSpinner}>
-            <div class={spinnerCss.spinner}><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div>
-        </div>
-    );
 }

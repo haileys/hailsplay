@@ -30,6 +30,17 @@ export async function metadata(url: Url, abortSignal: AbortSignal | null): Promi
         .response();
 }
 
+export type RadioStation = {
+    name: string,
+    icon_url: Url,
+    stream_url: Url,
+};
+
+export async function radioStations(): Promise<RadioStation[]> {
+    return await get("/api/radio/stations")
+        .response()
+}
+
 // helpers from here on:
 
 function get(url: string): RequestBuilder {

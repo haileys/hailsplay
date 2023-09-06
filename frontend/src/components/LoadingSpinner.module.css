@@ -1,3 +1,9 @@
+.block {
+    display:flex;
+    align-items:center;
+    justify-content:center;
+}
+
 .spinner {
     --spinner-animation-time: 0.8s;
     --spinner-size: 40px;

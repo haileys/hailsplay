@@ -6,20 +6,31 @@ mod fs;
 mod http;
 mod mpd;
 mod ytdlp;
+mod tools;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use config::Config;
 use derive_more::{Display, FromStr};
-use fs::WorkingDirectory;
 use log::LevelFilter;
-use mpd::Mpd;
 use serde::Deserialize;
+use structopt::StructOpt;
 use url::Url;
 use uuid::Uuid;
+
+use crate::config::Config;
+use crate::fs::WorkingDirectory;
+use crate::mpd::Mpd;
+
+#[derive(StructOpt)]
+enum Cmd {
+    Server,
+    #[structopt(flatten)]
+    Tool(tools::Cmd),
+}
+
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -28,9 +39,15 @@ async fn main() -> ExitCode {
         .filter(None, LevelFilter::Info)
         .init();
 
+    let cmd = Cmd::from_args();
     let config = config::load();
 
-    match run(config).await {
+    let result = match cmd {
+        Cmd::Server => run(config).await,
+        Cmd::Tool(cmd) => tools::run(cmd, config).await,
+    };
+
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             log::error!("fatal error: {e:?}\n{}", e.backtrace());
@@ -65,8 +82,13 @@ impl App {
         Ok(Mpd::connect(&self.0.config.mpd).await?)
     }
 
-    pub async fn database(&self) -> tokio::sync::MutexGuard<'_, rusqlite::Connection> {
-        self.0.database.get().await
+    pub async fn use_database<R>(&self, f: impl FnOnce(&mut rusqlite::Connection) -> R) -> R {
+        let mut conn = self.0.database.get().await;
+        tokio::task::block_in_place(|| f(&mut conn))
+    }
+
+    pub fn config(&self) -> &Config {
+        &self.0.config
     }
 
     pub fn working_dir(&self) -> &WorkingDirectory {

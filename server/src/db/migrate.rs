@@ -1,39 +1,7 @@
 use std::collections::BTreeSet;
-use std::path::Path;
 
-use thiserror::Error;
 use rusqlite::Connection;
-use tokio::sync::{Mutex, MutexGuard};
-
-pub struct Pool {
-    conn: Mutex<Connection>,
-}
-
-impl Pool {
-    pub async fn get(&self) -> MutexGuard<'_, Connection> {
-        self.conn.lock().await
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum OpenError {
-    #[error("database error: {0}")]
-    Open(#[from] rusqlite::Error),
-
-    #[error("running migrations: {0}")]
-    Migration(#[from] MigrationError),
-}
-
-pub async fn open(path: &Path) -> Result<Pool, OpenError> {
-    tokio::task::block_in_place(|| {
-        let mut conn = Connection::open(path)?;
-
-        // migrate database on every open
-        migrate(&mut conn)?;
-
-        Ok(Pool { conn: Mutex::new(conn) })
-    })
-}
+use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum MigrationError {
@@ -47,7 +15,7 @@ pub enum MigrationError {
     Database(#[from] rusqlite::Error),
 }
 
-fn migrate(conn: &mut Connection) -> Result<(), MigrationError> {
+pub fn run(conn: &mut Connection) -> Result<(), MigrationError> {
     let txn = conn.transaction()?;
 
     txn.execute_batch("CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY);")?;
@@ -86,7 +54,7 @@ fn migrate(conn: &mut Connection) -> Result<(), MigrationError> {
 }
 
 macro_rules! migration {
-    ($name:literal) => { ($name, include_str!(concat!("../migrations/", $name, ".sql"))) }
+    ($name:literal) => { ($name, include_str!(concat!("../../migrations/", $name, ".sql"))) }
 }
 
 static MIGRATIONS: &[(&str, &str)] = &[

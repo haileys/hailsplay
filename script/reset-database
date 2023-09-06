@@ -1,0 +1,24 @@
+#!/bin/bash -e
+cd "$(dirname "$0")/.."
+rm -f hailsplay.db
+set -x
+
+cargo run -- add-station \
+    --name PBS \
+    --icon frontend/src/assets/radio-pbs.png \
+    --stream-url "https://playerservices.streamtheworld.com/api/livestream-redirect/3PBS_FMAAC128.aac"
+
+cargo run -- add-station \
+    --name RRR \
+    --icon frontend/src/assets/radio-rrr.png \
+    --stream-url "http://realtime.rrr.org.au/p1h"
+
+cargo run -- add-station \
+    --name "SomaFM: Groove Salad" \
+    --icon frontend/src/assets/radio-soma-groovesalad.png \
+    --stream-url "https://ice4.somafm.com/groovesalad-256-mp3"
+
+cargo run -- add-station \
+    --name "SomaFM: Heavyweight Reggae" \
+    --icon frontend/src/assets/radio-soma-reggae.png \
+    --stream-url "https://ice4.somafm.com/reggae-256-mp3"
