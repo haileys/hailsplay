@@ -3,14 +3,14 @@ pub mod playlist;
 
 use std::{str::FromStr, convert::Infallible};
 
-use anyhow::{Result, Context};
+use anyhow::{Result, Context, bail};
 use serde::{Serialize, Deserialize};
 use tokio::net::UnixStream;
 use url::Url;
 
 use crate::config;
 
-use self::protocol::{MpdReader, MpdWriter, Protocol, Response};
+use self::protocol::{MpdReader, MpdWriter, Protocol, Response, Attributes};
 
 pub struct Mpd {
     conn: Conn,
@@ -43,11 +43,26 @@ pub struct PlaylistItem {
     pub file: Url,
     pub pos: i64,
     pub id: Id,
+    pub name: Option<String>,
+    pub title: Option<String>,
 }
 
 #[derive(Debug)]
 pub struct Changed {
     pub subsystems: Vec<String>,
+}
+
+#[derive(Debug)]
+pub enum PlayerState {
+    Stop,
+    Pause,
+    Play,
+}
+
+#[derive(Debug)]
+pub struct Status {
+    pub state: PlayerState,
+    pub song_id: Id,
 }
 
 impl Mpd {
@@ -74,13 +89,7 @@ impl Mpd {
 
         let items = resp.attributes.split_at("file")
             .into_iter()
-            .map(|attrs| {
-                Ok(PlaylistItem {
-                    file: attrs.get("file")?,
-                    pos: attrs.get("Pos")?,
-                    id: attrs.get("Id")?,
-                })
-            })
+            .map(parse_playlist_item)
             .collect::<Result<Vec<_>>>()
             .context("parsing playlist info response")?;
 
@@ -109,6 +118,37 @@ impl Mpd {
         self.command("stop", &[]).await??;
         Ok(())
     }
+
+    pub async fn status(&mut self) -> Result<Status> {
+        let resp = self.command("status", &[]).await??;
+
+        let state = match resp.attributes.get_one("state") {
+            Some("play") => PlayerState::Play,
+            Some("pause") => PlayerState::Pause,
+            Some("stop") => PlayerState::Stop,
+            Some(state) => bail!("unknown player state: {state}"),
+            None => bail!("missing player state"),
+        };
+
+        let song_id = resp.attributes.get("songid")?;
+
+        Ok(Status { state, song_id })
+    }
+
+    pub async fn playlistid(&mut self, id: Id) -> Result<PlaylistItem> {
+        let resp = self.command("playlistid", &[&id.0]).await??;
+        parse_playlist_item(resp.attributes)
+    }
+}
+
+fn parse_playlist_item(attrs: Attributes) -> Result<PlaylistItem> {
+    Ok(PlaylistItem {
+        file: attrs.get("file")?,
+        pos: attrs.get("Pos")?,
+        id: attrs.get("Id")?,
+        title: attrs.get_one("Title").map(str::to_owned),
+        name: attrs.get_one("Name").map(str::to_owned),
+    })
 }
 
 struct Conn {
