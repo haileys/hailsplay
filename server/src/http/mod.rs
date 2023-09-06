@@ -13,6 +13,7 @@ pub fn routes(app: App) -> Router {
     Router::new()
         .route("/api/queue", post(queue::add))
         .route("/api/queue", get(queue::index))
+        .route("/api/radio/tune", post(radio::tune))
         .route("/api/metadata", get(metadata::metadata))
         .route("/media/:id/stream", get(media::stream))
         .route("/ws", get(ws::handler))

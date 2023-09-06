@@ -99,6 +99,16 @@ impl Mpd {
         self.command("play", &[]).await??;
         Ok(())
     }
+
+    pub async fn playid(&mut self, id: Id) -> Result<()> {
+        self.command("playid", &[&id.0]).await??;
+        Ok(())
+    }
+
+    pub async fn stop(&mut self) -> Result<()> {
+        self.command("stop", &[]).await??;
+        Ok(())
+    }
 }
 
 struct Conn {

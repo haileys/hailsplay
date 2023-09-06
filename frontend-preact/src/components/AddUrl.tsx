@@ -6,7 +6,7 @@ import { ReactComponent as PlusIcon } from "feather-icons/dist/icons/plus.svg";
 import css from "./AddUrl.module.css";
 import spinnerCss from "../spinner.module.css";
 
-import { Metadata, metadata, catchAbortErrors } from "../api";
+import { Metadata, metadata } from "../api";
 import { ModalContext } from "../routes";
 
 type ViewState =
@@ -75,7 +75,7 @@ function Form(props: { onsubmit(_: Url): void }) {
 
         // send new metadata request
         let controller = new AbortController();
-        catchAbortErrors(metadata(url, controller.signal)).then((metadata) => {
+        metadata(url, controller.signal).then((metadata) => {
             if (metadata !== null) {
                 setPreview({ state: "ready", url, metadata });
             }

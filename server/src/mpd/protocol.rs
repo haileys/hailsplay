@@ -53,7 +53,7 @@ impl MpdReader {
             }
 
             let line = buff.trim_end();
-            log::debug!("reading {line:?}");
+            log::debug!("recv: {line}");
 
             if line == "OK" {
                 return Ok(Ok(OkResponse {
@@ -66,7 +66,7 @@ impl MpdReader {
                 let line = line.to_string();
                 return Ok(Err(ErrorResponse { line }));
             }
-            
+
             if let Some(len) = prefixed("binary: ", line) {
                 binary = Some(self.read_binary(len).await?);
                 continue;
@@ -196,8 +196,9 @@ impl MpdWriter {
             line.push('"');
         }
         line.push('\n');
-        
+
         self.w.write_all(line.as_bytes()).await?;
+        log::debug!("send: {}", line.trim());
         Ok(())
-    }    
+    }
 }

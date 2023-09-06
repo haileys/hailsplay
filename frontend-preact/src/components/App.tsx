@@ -1,10 +1,11 @@
 import { RouteContext, ModalContext, RouteId, ModalId, defaultRoute } from "../routes";
-import { useErrorBoundary, useState } from "preact/hooks";
+import { useEffect, useErrorBoundary, useState } from "preact/hooks";
 
 import Footer from "./Footer";
 import Modal from "./Modal";
 import SelectRadioStation from "./SelectRadioStation";
 import AddUrl from "./AddUrl";
+import { ApiError } from "../api";
 
 function renderModal(modal: ModalId) {
     if (modal === null) {
@@ -39,9 +40,19 @@ export function App() {
     const [ route, setRoute ] = useState<RouteId>(defaultRoute);
     const [ modal, setModal ] = useState<ModalId>(null);
 
-    // useErrorBoundary((error, errorInfo) => {
-    //     setModal({ t: "error", message: error.toString() });
-    // });
+    let handleError = (error: any) => {
+        let message = error.toString();
+        setModal({ t: "error", message });
+    };
+
+    useErrorBoundary((error, errorInfo) => { handleError(error); });
+    useGlobalUnhandledRejectionHandler((ev: PromiseRejectionEvent) => {
+        if (ev.reason instanceof ApiError) {
+            handleError(ev.reason.message);
+        } else {
+            handleError(ev.reason);
+        }
+    });
 
 	return (
 		<RouteContext.Provider value={{ route, setRoute }}>
@@ -61,4 +72,13 @@ export function App() {
             </ModalContext.Provider>
 		</RouteContext.Provider>
 	);
+}
+
+function useGlobalUnhandledRejectionHandler(handler: (_: PromiseRejectionEvent) => void) {
+    useEffect(() => {
+        window.addEventListener("unhandledrejection", handler);
+        return () => {
+            window.removeEventListener("unhandledrejection", handler);
+        };
+    })
 }
