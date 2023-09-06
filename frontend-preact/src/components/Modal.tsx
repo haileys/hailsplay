@@ -13,18 +13,18 @@ export default function Modal(props: Props) {
     const { setModal } = useContext(ModalContext);
 
     return (
-        <div className={css.container}>
-            <div className={css.backdrop} onClick={() => setModal(null)}></div>
-            <div className={css.sheet}>
-                <div className={css.titleBar}>
-                    <div className={css.title}>
+        <div class={css.container}>
+            <div class={css.backdrop} onClick={() => setModal(null)}></div>
+            <div class={css.sheet}>
+                <div class={css.titleBar}>
+                    <div class={css.title}>
                         {props.title}
                     </div>
-                    <button className={css.closeButton} onClick={() => setModal(null)}>
+                    <button class={css.closeButton} onClick={() => setModal(null)}>
                         <CloseIcon />
                     </button>
                 </div>
-                <div className={css.content}>
+                <div class={css.content}>
                     {props.children}
                 </div>
             </div>
