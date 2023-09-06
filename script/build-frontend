@@ -1,6 +1,6 @@
 #!/bin/bash
 set -eu
-cd "$(dirname "$0")/../frontend-preact"
+cd "$(dirname "$0")/../frontend"
 
 declare -a VITE_ARGS
 VITE_ARGS=()
