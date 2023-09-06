@@ -7,5 +7,6 @@ external_url = "http://10.1.1.6:3000/"
 socket = "tmp/mpd/mpd.sock"
 
 [storage]
+database = "hailsplay.db"
 archive = "tmp/archive"
 working = "tmp/working"

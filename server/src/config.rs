@@ -26,6 +26,7 @@ pub struct Mpd {
 pub struct Storage {
     pub archive: PathBuf,
     pub working: PathBuf,
+    pub database: PathBuf,
 }
 
 fn try_config(path: &Path) -> Option<Config> {
@@ -51,7 +52,7 @@ fn try_config(path: &Path) -> Option<Config> {
 
 pub fn load() -> Config {
     let current_dir = std::env::current_dir().unwrap();
-    
+
     if let Some(config) = try_config(&current_dir.join("config.toml")) {
         return config;
     }

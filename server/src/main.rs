@@ -1,4 +1,5 @@
 mod config;
+mod db;
 mod error;
 mod frontend;
 mod fs;
@@ -40,8 +41,9 @@ async fn main() -> ExitCode {
 
 async fn run(config: Config) -> anyhow::Result<()> {
     let working = WorkingDirectory::open_or_create(&config.storage.working).await?;
+    let database = db::open(&config.storage.database).await?;
 
-    let app = App::new(config, working);
+    let app = App::new(config, working, database);
     let router = http::routes(app);
     let router = frontend::serve(router);
 
@@ -63,6 +65,10 @@ impl App {
         Ok(Mpd::connect(&self.0.config.mpd).await?)
     }
 
+    pub async fn database(&self) -> tokio::sync::MutexGuard<'_, rusqlite::Connection> {
+        self.0.database.get().await
+    }
+
     pub fn working_dir(&self) -> &WorkingDirectory {
         &self.0.working
     }
@@ -76,6 +82,7 @@ pub struct AppCtx {
     pub config: Config,
     pub working: WorkingDirectory,
     pub state: Mutex<AppState>,
+    pub database: db::Pool,
 }
 
 #[derive(Default)]
@@ -100,11 +107,12 @@ impl MediaRecord {
 }
 
 impl App {
-    pub fn new(config: Config, working: WorkingDirectory) -> Self {
+    pub fn new(config: Config, working: WorkingDirectory, database: db::Pool) -> Self {
         App(Arc::new(AppCtx {
             config,
             working,
             state: Default::default(),
+            database,
         }))
     }
 }

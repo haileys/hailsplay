@@ -36,3 +36,4 @@ tokio-stream = { version = "0.1.14", features = ["sync"] }
 tokio-util = { version = "0.7.8", features = ["io"] }
 thiserror = "1.0.44"
 derive_more = "0.99.17"
+rusqlite = "0.29.0"
