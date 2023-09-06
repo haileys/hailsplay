@@ -1,0 +1,86 @@
+.player {
+    display:flex;
+    flex-flow:column nowrap;
+    align-items:center;
+
+    background-color:var(--player-card-background);
+    border-bottom:1px solid var(--player-card-border);
+
+    padding-top:10vw;
+    padding-bottom:1.5rem;
+    gap:1.5rem;
+}
+
+.coverArtContainer {
+    width:80vw;
+    aspect-ratio:1;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+}
+
+.coverArtInset {
+    width:100%;
+    height:100%;
+    border:1px solid black;
+    box-shadow:0px 0px 1rem 0rem rgba(0, 0, 0, 0.2);
+}
+
+.coverArtInset img {
+    width:100%;
+    height:100%;
+    object-fit:cover;
+}
+
+.trackPrimaryLabel {
+    font-size:1.4rem;
+    font-weight:bold;
+    text-align:center;
+    color:var(--player-primary-label-color);
+}
+
+.trackSecondaryLabel {
+    font-size:1rem;
+    text-align:center;
+    color:var(--player-secondary-label-color);
+}
+
+.playerControls {
+    display:flex;
+    flex-flow:row nowrap;
+    justify-content:center;
+    align-items:center;
+    gap:2rem;
+}
+
+.playerControls button {
+    display:flex;
+    justify-content:center;
+    align-items:center;
+
+    outline:none;
+    border:1px solid var(--player-control-border-color);
+    background:var(--player-control-background-color);
+    color:var(--player-control-stroke-color);
+}
+
+.playerControls button svg {
+    width:70%;
+    height:70%;
+}
+
+.playerPrimaryControl {
+    width:4rem;
+    height:4rem;
+    border-radius:2rem;
+}
+
+.playButton {
+    padding-left:0.4rem;
+}
+
+.playerSecondaryControl {
+    width:2.5rem;
+    height:2.5rem;
+    border-radius:1.5rem;
+}

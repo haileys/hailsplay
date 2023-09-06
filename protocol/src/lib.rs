@@ -13,10 +13,6 @@ pub struct MetadataRequest {
     pub url: Url,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub enum ServerMessage {
-    Playlist(Playlist),
-}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MetadataResponse {

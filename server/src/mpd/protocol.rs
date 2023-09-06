@@ -5,7 +5,7 @@ use thiserror::Error;
 use tokio::io::{BufReader, AsyncRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub struct MpdReader {
-    r: BufReader<Box<dyn AsyncRead + Send + Unpin>>,
+    r: BufReader<Box<dyn AsyncRead + Sync + Send + Unpin>>,
 }
 
 pub struct Protocol {
@@ -22,7 +22,7 @@ pub enum Error {
 
 impl MpdReader {
     pub async fn open<R>(r: R) -> anyhow::Result<(Self, Protocol)>
-        where R: AsyncRead + Send + Unpin + 'static
+        where R: AsyncRead + Sync + Send + Unpin + 'static
     {
         let mut r = BufReader::new(Box::new(r) as Box<_>);
 
@@ -127,6 +127,12 @@ impl Attributes {
             .with_context(|| format!("malformed {name} attribute"))?)
     }
 
+    pub fn get_opt<T: FromStr<Err = E>, E: Send + Sync + std::error::Error + 'static>(&self, name: &str) -> anyhow::Result<Option<T>> {
+        self.get_one(name)
+            .map(|value| value.parse().with_context(|| format!("malformed {name} attribute")))
+            .transpose()
+    }
+
     pub fn get_one(&self, name: &str) -> Option<&'_ str> {
         Some(&self.attrs.iter().find(|(k, _)| k == name)?.1)
     }
@@ -164,12 +170,12 @@ impl Attributes {
 }
 
 pub struct MpdWriter {
-    w: Box<dyn AsyncWrite + Send + Unpin>,
+    w: Box<dyn AsyncWrite + Send + Sync + Unpin>,
 }
 
 impl MpdWriter {
     pub fn open<W>(w: W) -> Self
-        where W: AsyncWrite + Send + Unpin + 'static
+        where W: AsyncWrite + Send + Sync + Unpin + 'static
     {
         MpdWriter { w: Box::new(w) }
     }

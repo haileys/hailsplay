@@ -1,6 +1,19 @@
 import { render } from "preact";
 
 import { App } from "./components/App";
-import "./style.css";
+import { Router } from "./routes";
 
-render(<App />, document.body);
+import "./style.css";
+import { LiveSession } from "./socket";
+
+function root() {
+    return (
+        <Router>
+            <LiveSession>
+                <App />
+            </LiveSession>
+        </Router>
+    );
+}
+
+render(root(), document.body);

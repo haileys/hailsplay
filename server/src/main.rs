@@ -5,8 +5,9 @@ mod frontend;
 mod fs;
 mod http;
 mod mpd;
-mod ytdlp;
+mod player;
 mod tools;
+mod ytdlp;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -78,6 +79,10 @@ async fn run(config: Config) -> anyhow::Result<()> {
 pub struct App(pub Arc<AppCtx>);
 
 impl App {
+    pub async fn session(&self) -> anyhow::Result<player::Session> {
+        player::session::Session::new(self.clone()).await
+    }
+
     pub async fn mpd(&self) -> anyhow::Result<Mpd> {
         Ok(Mpd::connect(&self.0.config.mpd).await?)
     }

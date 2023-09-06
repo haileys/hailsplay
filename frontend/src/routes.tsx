@@ -1,4 +1,4 @@
-import { createContext } from "preact";
+import { ComponentChildren, createContext } from "preact";
 import { StateUpdater, useState } from "preact/hooks";
 
 export type RouteId = "index";
@@ -20,3 +20,16 @@ export const ModalContext = createContext<{ modal: ModalId, setModal: StateUpdat
     modal: null,
     setModal() {}
 });
+
+export function Router(props: { children: ComponentChildren }) {
+    const [ route, setRoute ] = useState<RouteId>(defaultRoute);
+    const [ modal, setModal ] = useState<ModalId>(null);
+
+	return (
+		<RouteContext.Provider value={{ route, setRoute }}>
+            <ModalContext.Provider value={{ modal, setModal }}>
+                {props.children}
+            </ModalContext.Provider>
+        </RouteContext.Provider>
+    );
+}

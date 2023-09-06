@@ -1,9 +1,9 @@
 pub mod protocol;
-pub mod playlist;
 
 use std::{str::FromStr, convert::Infallible};
 
 use anyhow::{Result, Context, bail};
+use derive_more::FromStr;
 use serde::{Serialize, Deserialize};
 use tokio::net::UnixStream;
 use url::Url;
@@ -40,7 +40,7 @@ pub struct Playlist {
 
 #[derive(Debug)]
 pub struct PlaylistItem {
-    pub file: Url,
+    pub file: String,
     pub pos: i64,
     pub id: Id,
     pub name: Option<String>,
@@ -59,10 +59,15 @@ pub enum PlayerState {
     Play,
 }
 
+#[derive(Debug, FromStr)]
+pub struct Seconds(pub f64);
+
 #[derive(Debug)]
 pub struct Status {
     pub state: PlayerState,
-    pub song_id: Id,
+    pub song_id: Option<Id>,
+    pub elapsed: Option<Seconds>,
+    pub duration: Option<Seconds>,
 }
 
 impl Mpd {
@@ -130,12 +135,15 @@ impl Mpd {
             None => bail!("missing player state"),
         };
 
-        let song_id = resp.attributes.get("songid")?;
-
-        Ok(Status { state, song_id })
+        Ok(Status {
+            state,
+            song_id: resp.attributes.get_opt("songid")?,
+            elapsed: resp.attributes.get_opt("elapsed")?,
+            duration: resp.attributes.get_opt("duration")?,
+        })
     }
 
-    pub async fn playlistid(&mut self, id: Id) -> Result<PlaylistItem> {
+    pub async fn playlistid(&mut self, id: &Id) -> Result<PlaylistItem> {
         let resp = self.command("playlistid", &[&id.0]).await??;
         parse_playlist_item(resp.attributes)
     }

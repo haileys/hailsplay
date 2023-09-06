@@ -1,26 +1,32 @@
-use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Path, State};
 
 use hailsplay_protocol as proto;
 
 use crate::error::AppResult;
-use crate::mpd::{self, Mpd, playlist};
+use crate::mpd::{self, Mpd};
+use crate::player::{self, TrackId, QueueItem};
+use crate::player::metadata::{self, TrackInfo};
 use crate::{App, MediaRecord, ytdlp, MediaId};
 
-pub async fn index(app: State<App>) -> AppResult<Json<proto::Playlist>> {
-    let mut mpd = app.mpd().await?;
-    Ok(Json(playlist::fetch(&mut mpd, &app).await?))
+pub async fn index(app: State<App>) -> AppResult<Json<Vec<QueueItem>>> {
+    let mut session = app.session().await?;
+    Ok(Json(player::queue(&mut session).await?))
+}
+
+pub async fn show(app: State<App>, Path(track_id): Path<TrackId>) -> AppResult<Json<TrackInfo>> {
+    let mut session = app.session().await?;
+    Ok(Json(metadata::load(&mut session, &track_id).await?))
 }
 
 #[axum::debug_handler]
 pub async fn add(app: State<App>, data: Json<proto::AddParams>) -> AppResult<Json<proto::AddResponse>> {
     let id = MediaId(uuid::Uuid::new_v4());
 
-    let dir = app.working_dir().create_dir(Path::new(&id.to_string())).await?;
+    let dir = app.working_dir().create_dir(&id.to_string()).await?;
     let dir = dir.into_shared();
 
     let download = ytdlp::start_download(dir, &data.url).await?;

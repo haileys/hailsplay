@@ -1,11 +1,16 @@
 import { RouteContext, ModalContext, RouteId, ModalId, defaultRoute } from "../routes";
-import { useEffect, useErrorBoundary, useState } from "preact/hooks";
+import { useContext, useEffect, useErrorBoundary, useState } from "preact/hooks";
+import { createContext } from "preact";
 
 import Footer from "./Footer";
 import Modal from "./Modal";
 import SelectRadioStation from "./SelectRadioStation";
 import AddUrl from "./AddUrl";
 import { ApiError } from "../api";
+import Player from "./Player";
+import css from "./App.module.css";
+import { ReactComponent as RoundedCorner } from "../assets/rounded-corner.svg";
+import { LiveContext, LiveSession } from "../socket";
 
 function renderModal(modal: ModalId) {
     if (modal === null) {
@@ -37,15 +42,40 @@ function renderModal(modal: ModalId) {
 }
 
 export function App() {
-    const [ route, setRoute ] = useState<RouteId>(defaultRoute);
-    const [ modal, setModal ] = useState<ModalId>(null);
+    const { modal, setModal } = useContext(ModalContext);
+    useErrorHandling(setModal);
 
+    // const live = useContext(LiveContext);
+
+    return (
+        <>
+            <div class={css.header}>
+                <div class={css.appName}>{"hailsPlay"}</div>
+            </div>
+            <div class={css.mainArea}>
+                <RoundedCorner class={`${css.roundedCorner} ${css.roundedCornerTopLeft}`} />
+                <RoundedCorner class={`${css.roundedCorner} ${css.roundedCornerTopRight}`} />
+                <RoundedCorner class={`${css.roundedCorner} ${css.roundedCornerBottomLeft}`} />
+                <RoundedCorner class={`${css.roundedCorner} ${css.roundedCornerBottomRight}`} />
+                <div class={css.clientArea}>
+                    <Player />
+                </div>
+            </div>
+            <Footer />
+
+            {renderModal(modal)}
+        </>
+	);
+}
+
+function useErrorHandling(setModal: (_: ModalId) => void) {
     let handleError = (error: any) => {
         let message = error.toString();
         setModal({ t: "error", message });
     };
 
     useErrorBoundary((error, errorInfo) => { handleError(error); });
+
     useGlobalUnhandledRejectionHandler((ev: PromiseRejectionEvent) => {
         if (ev.reason instanceof ApiError) {
             handleError(ev.reason.message);
@@ -53,25 +83,6 @@ export function App() {
             handleError(ev.reason);
         }
     });
-
-	return (
-		<RouteContext.Provider value={{ route, setRoute }}>
-            <ModalContext.Provider value={{ modal, setModal }}>
-                <header>
-                    <div class="app-name">{"hailsPlay"}</div>
-                </header>
-                <main>
-                    <div class="main-border main-border-top"></div>
-                    <div class="main-content">
-                    </div>
-                    <div class="main-border main-border-bottom"></div>
-                </main>
-                <Footer />
-
-                {renderModal(modal)}
-            </ModalContext.Provider>
-		</RouteContext.Provider>
-	);
 }
 
 function useGlobalUnhandledRejectionHandler(handler: (_: PromiseRejectionEvent) => void) {

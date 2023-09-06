@@ -7,13 +7,14 @@ pub struct WorkingDirectory {
 }
 
 impl WorkingDirectory {
-    pub async fn open_or_create(path: &Path) -> io::Result<Self> {
-        tokio::fs::create_dir_all(path).await?;
-        Ok(WorkingDirectory { path: path.to_owned() })
+    pub async fn open_or_create(path: impl Into<PathBuf>) -> io::Result<Self> {
+        let path = path.into();
+        tokio::fs::create_dir_all(&path).await?;
+        Ok(WorkingDirectory { path })
     }
 
-    pub async fn create_dir(&self, name: &Path) -> io::Result<OwnedDir> {
-        let dir = self.path.join(name);
+    pub async fn create_dir(&self, name: impl AsRef<Path>) -> io::Result<OwnedDir> {
+        let dir = self.path.join(name.as_ref());
         tokio::fs::create_dir(&dir).await?;
         Ok(OwnedDir {
             path: dir,

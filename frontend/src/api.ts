@@ -1,7 +1,7 @@
-export type Url = string;
+import { Metadata, RadioStation, Id } from "./types";
 
 export type QueueAddResult = {
-    mpd_id: string,
+    mpd_id: Id,
 };
 
 export async function queueAdd(url: Url, abortSignal: AbortSignal | null): Promise<QueueAddResult | null> {
@@ -17,24 +17,12 @@ export async function tuneRadio(url: Url): Promise<null> {
         .response();
 }
 
-export type Metadata = {
-    title: string,
-    artist: string | null,
-    thumbnail: Url | null,
-}
-
 export async function metadata(url: Url, abortSignal: AbortSignal | null): Promise<Metadata | null> {
     return await get("/api/metadata")
         .param("url", url)
         .signal(abortSignal)
         .response();
 }
-
-export type RadioStation = {
-    name: string,
-    icon_url: Url,
-    stream_url: Url,
-};
 
 export async function radioStations(): Promise<RadioStation[]> {
     return await get("/api/radio/stations")
