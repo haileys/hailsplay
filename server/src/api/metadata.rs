@@ -1,25 +1,18 @@
 use std::str::FromStr;
 
 use regex::Regex;
-use serde::{Serialize, Deserialize};
 use url::Url;
+
+use hailsplay_protocol::{TrackInfo, TrackId};
 
 use crate::MediaId;
 use crate::db::radio;
 use crate::http::assets;
 use crate::mpd::PlaylistItem;
-use crate::player::{Session, TrackId};
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TrackInfo {
-    image_url: Option<Url>,
-    primary_label: String,
-    secondary_label: Option<String>,
-}
+use crate::api::Session;
 
 pub async fn load(session: &mut Session, track_id: &TrackId) -> anyhow::Result<TrackInfo> {
-    let item = session.mpd().playlistid(&track_id.0).await?;
+    let item = session.mpd().playlistid(&track_id.clone().into()).await?;
     for_playlist_item(session, &item).await
 }
 

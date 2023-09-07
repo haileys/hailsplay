@@ -1,20 +1,21 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use axum::Json;
+use axum::{Json, debug_handler};
 use axum::extract::{Path, State};
 
-use hailsplay_protocol as proto;
+use hailsplay_protocol::{TrackId, TrackInfo, Queue, AddResponse, AddParams};
 
 use crate::error::AppResult;
 use crate::mpd::{self, Mpd};
-use crate::player::{self, TrackId, Queue};
-use crate::player::metadata::{self, TrackInfo};
+use crate::api;
+use crate::api::metadata;
 use crate::{App, MediaRecord, ytdlp, MediaId};
 
+#[debug_handler]
 pub async fn index(app: State<App>) -> AppResult<Json<Queue>> {
     let mut session = app.session().await?;
-    Ok(Json(player::queue(&mut session).await?))
+    Ok(Json(api::queue(&mut session).await?))
 }
 
 pub async fn show(app: State<App>, Path(track_id): Path<TrackId>) -> AppResult<Json<TrackInfo>> {
@@ -23,7 +24,7 @@ pub async fn show(app: State<App>, Path(track_id): Path<TrackId>) -> AppResult<J
 }
 
 #[axum::debug_handler]
-pub async fn add(app: State<App>, data: Json<proto::AddParams>) -> AppResult<Json<proto::AddResponse>> {
+pub async fn add(app: State<App>, data: Json<AddParams>) -> AppResult<Json<AddResponse>> {
     let id = MediaId(uuid::Uuid::new_v4());
 
     let dir = app.working_dir().create_dir(&id.to_string()).await?;
@@ -54,7 +55,7 @@ pub async fn add(app: State<App>, data: Json<proto::AddParams>) -> AppResult<Jso
         mpd.play().await?;
     }
 
-    Ok(Json(proto::AddResponse { mpd_id: mpd_id.into() }))
+    Ok(Json(AddResponse { mpd_id: mpd_id.into() }))
 }
 
 async fn should_autoplay(mpd: &mut Mpd, added_id: &mpd::Id) -> Result<bool> {

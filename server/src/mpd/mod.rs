@@ -4,6 +4,7 @@ use std::{str::FromStr, convert::Infallible};
 
 use anyhow::{Result, Context, bail};
 use derive_more::FromStr;
+use hailsplay_protocol::TrackId;
 use serde::{Serialize, Deserialize};
 use tokio::net::UnixStream;
 use url::Url;
@@ -27,9 +28,15 @@ impl FromStr for Id {
     }
 }
 
-impl Into<hailsplay_protocol::PlaylistItemId> for Id {
-    fn into(self) -> hailsplay_protocol::PlaylistItemId {
-        hailsplay_protocol::PlaylistItemId(self.0)
+impl From<Id> for TrackId {
+    fn from(id: Id) -> TrackId {
+        TrackId(id.0)
+    }
+}
+
+impl From<TrackId> for Id {
+    fn from(id: TrackId) -> Id {
+        Id(id.0)
     }
 }
 

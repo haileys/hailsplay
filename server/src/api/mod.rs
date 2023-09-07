@@ -3,41 +3,13 @@ pub use session::Session;
 
 pub mod metadata;
 
-use serde::{Serialize, Deserialize};
-
+use hailsplay_protocol::{TrackId, PlayPosition, PlayState, PlayerStatus, Queue, QueueItem};
 use crate::mpd::{self, Seconds, Status};
-
-use self::metadata::TrackInfo;
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-pub struct TrackId(pub mpd::Id);
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PlayerStatus {
-    pub track: Option<TrackId>,
-    pub state: PlayState,
-    pub position: Option<PlayPosition>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum PlayState {
-    Stopped,
-    Loading,
-    Playing,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "t", rename_all = "kebab-case")]
-pub enum PlayPosition {
-    Streaming,
-    Elapsed { time: f64, duration: f64 },
-}
 
 pub async fn status(session: &mut Session) -> anyhow::Result<PlayerStatus> {
     let status = session.mpd().status().await?;
 
-    let track = status.song_id.clone().map(TrackId);
+    let track = status.song_id.clone().map(TrackId::from);
 
     Ok(PlayerStatus {
         track,
@@ -72,18 +44,6 @@ fn play_position(status: &Status) -> Option<PlayPosition> {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct QueueItem {
-    pub id: TrackId,
-    pub position: i64,
-    pub track: TrackInfo
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Queue {
-    pub items: Vec<QueueItem>,
-}
-
 pub async fn queue(session: &mut Session) -> anyhow::Result<Queue> {
     let playlist = session.mpd().playlistinfo().await?;
 
@@ -92,7 +52,7 @@ pub async fn queue(session: &mut Session) -> anyhow::Result<Queue> {
     for item in playlist.items {
         let track = metadata::for_playlist_item(&mut *session, &item).await?;
         items.push(QueueItem {
-            id: TrackId(item.id),
+            id: item.id.into(),
             position: item.pos,
             track,
         });

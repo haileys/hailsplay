@@ -5,7 +5,7 @@ mod frontend;
 mod fs;
 mod http;
 mod mpd;
-mod player;
+mod api;
 mod tools;
 mod ytdlp;
 
@@ -79,8 +79,8 @@ async fn run(config: Config) -> anyhow::Result<()> {
 pub struct App(pub Arc<AppCtx>);
 
 impl App {
-    pub async fn session(&self) -> anyhow::Result<player::Session> {
-        player::session::Session::new(self.clone()).await
+    pub async fn session(&self) -> anyhow::Result<api::Session> {
+        api::session::Session::new(self.clone()).await
     }
 
     pub async fn mpd(&self) -> anyhow::Result<Mpd> {

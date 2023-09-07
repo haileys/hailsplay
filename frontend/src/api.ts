@@ -1,10 +1,6 @@
-import { Metadata, RadioStation, Id, Url } from "./types";
+import { Metadata, RadioStation, TrackId, Url, AddResponse } from "./types";
 
-export type QueueAddResult = {
-    mpd_id: Id,
-};
-
-export async function queueAdd(url: Url, abortSignal: AbortSignal | null): Promise<QueueAddResult | null> {
+export async function queueAdd(url: Url, abortSignal: AbortSignal | null): Promise<AddResponse | null> {
     return await post("/api/queue")
         .json({ url })
         .signal(abortSignal)

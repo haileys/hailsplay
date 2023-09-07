@@ -29,7 +29,10 @@ function CurrentTrack() {
         <>
             <div class={css.coverArtContainer}>
                 <div class={css.coverArtInset}>
-                    <img src={track.imageUrl} />
+                    { track.imageUrl ? (<img src={track.imageUrl} />) : (
+                        // TODO - handle no cover art case
+                        null
+                    ) }
                 </div>
             </div>
             <div class={css.trackInfo}>
@@ -69,7 +72,10 @@ function QueueItem(props: { track: TrackInfo }) {
     return (
         <div class={css.queueItem}>
             <div class={css.queueItemArt}>
-                <img src={props.track.imageUrl} />
+                { props.track.imageUrl ? (<img src={props.track.imageUrl} />) : (
+                    // TODO - handle no cover art case
+                    null
+                ) }
             </div>
             <div class={css.queueItemDetails}>
                 <div class={css.queueItemPrimaryLabel}>

@@ -3,9 +3,12 @@ name = "hailsplay-protocol"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 uuid = { version = "*", features = ["serde"] }
 url = { version = "*", features = ["serde"] }
 serde = { version = "1", features = ["serde_derive"] }
+tsify = "0.4.5"
+wasm-bindgen = "0.2.87"

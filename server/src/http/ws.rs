@@ -1,13 +1,13 @@
 use std::{net::SocketAddr, mem::take};
 
-use axum::{extract::{State, ConnectInfo, WebSocketUpgrade, ws::{WebSocket, Message}}, response::IntoResponse};
-use hailsplay_protocol::{self as proto};
-use proto::ClientMessage;
-use serde::{Serialize, Deserialize};
+use axum::extract::{State, ConnectInfo, WebSocketUpgrade};
+use axum::extract::ws::{WebSocket, Message};
+use axum::response::IntoResponse;
 
-use crate::{App, player::{PlayerStatus, metadata::TrackInfo, Queue}};
+use crate::App;
 use crate::mpd::Changed;
-use crate::player;
+use crate::api;
+use hailsplay_protocol::{ClientMessage, ServerMessage};
 
 pub async fn handler(
     app: State<App>,
@@ -62,14 +62,6 @@ impl Socket {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "t", rename_all = "kebab-case")]
-pub enum ServerMessage {
-    Queue { queue: Queue },
-    TrackChange { track: Option<TrackInfo> },
-    Player { player: PlayerStatus },
-}
-
 async fn handle_socket(app: State<App>, ws: WebSocket, _: SocketAddr) -> anyhow::Result<()> {
     let mut session = app.session().await?;
 
@@ -80,12 +72,12 @@ async fn handle_socket(app: State<App>, ws: WebSocket, _: SocketAddr) -> anyhow:
 
     loop {
         if take(&mut reload.playlist) {
-            let queue = player::queue(&mut session).await?;
+            let queue = api::queue(&mut session).await?;
             socket.send(ServerMessage::Queue { queue }).await?;
         }
 
         if take(&mut reload.player) {
-            let player = player::status(&mut session).await?;
+            let player = api::status(&mut session).await?;
 
             // if current track has changed since the client last knew about
             // it, send an update
@@ -93,7 +85,7 @@ async fn handle_socket(app: State<App>, ws: WebSocket, _: SocketAddr) -> anyhow:
                 current_track = player.track.clone();
 
                 let track = match &player.track {
-                    Some(id) => Some(player::metadata::load(&mut session, id).await?),
+                    Some(id) => Some(api::metadata::load(&mut session, id).await?),
                     None => None,
                 };
 

@@ -1,52 +1,93 @@
-use uuid::Uuid;
-use url::Url;
+#[macro_use] mod macros;
+
 use serde::{Serialize, Deserialize};
+use url::Url;
 
-#[derive(Serialize, Deserialize, Debug)]
-pub enum ClientMessage {
-    MetadataRequest(MetadataRequest),
-}
+protocol! {
+    #[derive(Serialize, Deserialize, Debug)]
+    #[serde(tag = "t", rename_all = "kebab-case")]
+    pub struct ClientMessage {}
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct MetadataRequest {
-    pub request_id: Uuid,
-    pub url: Url,
-}
+    #[derive(Serialize, Deserialize, Debug)]
+    #[serde(tag = "t", rename_all = "kebab-case")]
+    pub enum ServerMessage {
+        Queue { queue: Queue },
+        TrackChange { track: Option<TrackInfo> },
+        Player { player: PlayerStatus },
+    }
 
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct QueueItem {
+        pub id: TrackId,
+        pub position: i64,
+        pub track: TrackInfo
+    }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct MetadataResponse {
-    pub request_id: Uuid,
-    pub result: Result<Metadata, String>,
-}
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct Queue {
+        pub items: Vec<QueueItem>,
+    }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Metadata {
-    pub title: String,
-    pub artist: Option<String>,
-    pub thumbnail: Option<Url>,
-}
+    #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+    pub struct TrackId(pub String);
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Playlist {
-    pub items: Vec<PlaylistItem>,
-}
+    #[derive(Debug, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct TrackInfo {
+        pub image_url: Option<Url>,
+        pub primary_label: String,
+        pub secondary_label: Option<String>,
+    }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct PlaylistItemId(pub String);
+    #[derive(Serialize, Deserialize, Debug, Clone, Default)]
+    pub struct Metadata {
+        pub title: String,
+        pub artist: Option<String>,
+        pub thumbnail: Option<Url>,
+    }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct PlaylistItem {
-    pub id: PlaylistItemId,
-    pub meta: Metadata,
-}
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct PlayerStatus {
+        pub track: Option<TrackId>,
+        pub state: PlayState,
+        pub position: Option<PlayPosition>,
+    }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct AddParams {
-    pub url: Url,
-}
+    #[derive(Debug, Serialize, Deserialize)]
+    #[serde(rename_all = "kebab-case")]
+    pub enum PlayState {
+        Stopped,
+        Loading,
+        Playing,
+    }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct AddResponse {
-    pub mpd_id: PlaylistItemId,
+    #[derive(Debug, Serialize, Deserialize)]
+    #[serde(tag = "t", rename_all = "kebab-case")]
+    pub enum PlayPosition {
+        Streaming,
+        Elapsed { time: f64, duration: f64 },
+    }
+
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    pub struct AddParams {
+        pub url: Url,
+    }
+
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    pub struct AddResponse {
+        pub mpd_id: TrackId,
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    pub struct TuneParams {
+        pub url: Url,
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    pub struct RadioStation {
+        pub name: String,
+        pub icon_url: Url,
+        pub stream_url: Url,
+    }
+
 }
