@@ -22,6 +22,8 @@ pub fn routes(app: App) -> Router {
         .route("/api/player/play", post(player::play))
         .route("/api/player/pause", post(player::pause))
         .route("/api/player/stop", post(player::stop))
+        .route("/api/player/skip-next", post(player::skip_next))
+        .route("/api/player/skip-back", post(player::skip_back))
         .route("/assets/:id/:digest/:filename", get(assets::file))
         .route("/media/:id/stream", get(media::stream))
         .route("/ws", get(ws::handler))

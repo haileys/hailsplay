@@ -47,6 +47,9 @@ body {
     --player-control-background-color:#87bb7b;
     --player-control-border-color:#61a052;
     --player-control-stroke-color:#ffffff;
+
+    --queue-primary-label-color:#111111;
+    --queue-secondary-label-color:#667766;
 }
 
 html,

@@ -137,6 +137,16 @@ impl Mpd {
         Ok(())
     }
 
+    pub async fn next(&mut self) -> Result<()> {
+        self.command("next", &[]).await??;
+        Ok(())
+    }
+
+    pub async fn previous(&mut self) -> Result<()> {
+        self.command("previous", &[]).await??;
+        Ok(())
+    }
+
     pub async fn status(&mut self) -> Result<Status> {
         let resp = self.command("status", &[]).await??;
 

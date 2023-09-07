@@ -3,18 +3,54 @@ import css from "./Player.module.css";
 import { LiveContext } from "../socket";
 import { useContext } from "preact/hooks";
 import PlayerControls from "./PlayerControls";
-import { TrackInfo } from "src/types";
+import { QueueItem, TrackId, TrackInfo } from "../types";
 
 export default function Player() {
+    const live = useContext(LiveContext);
+
+    if (live.queue.value === null) {
+        return null;
+    }
+
+    let currentTrackId = live.player.value && live.player.value.track;
+    let { history, queue } = partitionQueue(currentTrackId, live.queue.value.items)
+
     return (
         <>
+            <QueueList items={history} />
             <div class={css.player}>
                 <CurrentTrack />
                 <PlayerControls />
             </div>
-            <Queue />
+            <QueueList items={queue} />
         </>
     );
+}
+
+
+function partitionQueue(current: TrackId | null, items: QueueItem[]): { history: QueueItem[], queue: QueueItem[] } {
+    let i = 0;
+
+    let history = [];
+    if (current !== null) {
+        for (; i < items.length; i++) {
+            if (items[i].id === current) {
+                break;
+            }
+
+            history.push(items[i]);
+        }
+    }
+
+    // skip past current track
+    i++;
+
+    let queue = [];
+    for (; i < items.length; i++) {
+        queue.push(items[i]);
+    }
+
+    return { history, queue };
 }
 
 function CurrentTrack() {
@@ -29,7 +65,9 @@ function CurrentTrack() {
         <>
             <div class={css.coverArtContainer}>
                 <div class={css.coverArtInset}>
-                    { track.imageUrl ? (<img src={track.imageUrl} />) : (
+                    { track.imageUrl ? (
+                        <img src={track.imageUrl} class={css.image} />
+                    ) : (
                         // TODO - handle no cover art case
                         null
                     ) }
@@ -47,32 +85,23 @@ function CurrentTrack() {
     )
 }
 
-function Queue() {
-    const live = useContext(LiveContext);
-
-    console.log("Queue");
-
-    let queue = live.queue.value;
-    if (queue === null) {
-        return null;
-    }
-
-    console.log("queue:", queue);
-
+function QueueList(props: { items: QueueList[] }) {
     return (
         <div class={css.queueList}>
-            {queue.items.map(item => (
-                <QueueItem track={item.track} key={item.id} />
+            {props.items.map(item => (
+                <QueueListItem track={item.track} key={item.id} />
             ))}
         </div>
     )
 }
 
-function QueueItem(props: { track: TrackInfo }) {
+function QueueListItem(props: { track: TrackInfo }) {
     return (
         <div class={css.queueItem}>
             <div class={css.queueItemArt}>
-                { props.track.imageUrl ? (<img src={props.track.imageUrl} />) : (
+                { props.track.imageUrl ? (
+                    <img src={props.track.imageUrl} class={css.image} />
+                ) : (
                     // TODO - handle no cover art case
                     null
                 ) }

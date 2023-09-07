@@ -20,3 +20,15 @@ pub async fn stop(app: State<App>) -> AppResult<Json<()>> {
     session.mpd().stop().await?;
     Ok(Json(()))
 }
+
+pub async fn skip_next(app: State<App>) -> AppResult<Json<()>> {
+    let mut session = app.session().await?;
+    session.mpd().next().await?;
+    Ok(Json(()))
+}
+
+pub async fn skip_back(app: State<App>) -> AppResult<Json<()>> {
+    let mut session = app.session().await?;
+    session.mpd().previous().await?;
+    Ok(Json(()))
+}

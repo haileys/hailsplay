@@ -19,13 +19,13 @@ export default function PlayerControls() {
         return null;
     }
 
-    let onPlayAction = async (action: PlayAction) => {
-        let setOptimisticState = (state: PlayState) => {
-            if (live.player.value) {
-                live.player.value = { ...live.player.value, state };
-            }
-        };
+    let setOptimisticState = (state: PlayState) => {
+        if (live.player.value) {
+            live.player.value = { ...live.player.value, state };
+        }
+    };
 
+    let onPlayAction = async (action: PlayAction) => {
         switch (action) {
             case "play":
                 setOptimisticState("loading");
@@ -43,10 +43,12 @@ export default function PlayerControls() {
     };
 
     let onSkipNext = async () => {
+        setOptimisticState("loading");
         await post("/api/player/skip-next").response();
     };
 
     let onSkipBack = async() => {
+        setOptimisticState("loading");
         await post("/api/player/skip-back").response();
     };
 
