@@ -1,11 +1,10 @@
-import { JSX, createRef } from "preact";
-import { useContext, useEffect, useState } from "preact/hooks";
-import { Url, queueAdd } from "../api";
-
+import { createRef } from "preact";
+import { useContext, useState } from "preact/hooks";
 import { ReactComponent as PlusIcon } from "feather-icons/dist/icons/plus.svg";
-import css from "./AddUrl.module.css";
 
-import { Metadata, metadata } from "../api";
+import css from "./AddUrl.module.css";
+import { Url, Metadata } from "../types";
+import { metadata, queueAdd } from "../api";
 import { ModalContext } from "../routes";
 import { LoadingSpinner, LoadingSpinnerBlock } from "./LoadingSpinner";
 
@@ -23,11 +22,10 @@ export default function AddUrl() {
         let onsubmit = (url: string) => {
             let controller = new AbortController();
 
-            queueAdd(url, controller.signal).then((result) => {
-                setModal(null);
-            });
+            queueAdd(url, controller.signal)
+                .then(_ => setModal(null));
 
-            setView({ state: "adding", controller: controller });
+            setView({ state: "adding", controller });
         };
 
         return (<Form onsubmit={onsubmit} />);

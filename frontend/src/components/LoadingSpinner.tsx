@@ -10,8 +10,6 @@ export function LoadingSpinnerBlock() {
 
 export function LoadingSpinner() {
     return (
-        <div class={css.loadingSpinner}>
-            <div class={css.spinner}><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div>
-        </div>
+        <div class={css.spinner}><div /><div /><div /><div /><div /><div /><div /><div /><div /><div /><div /><div /></div>
     );
 }

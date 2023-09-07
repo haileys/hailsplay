@@ -5,7 +5,7 @@ use hailsplay_protocol::{self as proto};
 use proto::ClientMessage;
 use serde::{Serialize, Deserialize};
 
-use crate::{App, player::{QueueItem, PlayerStatus, metadata::TrackInfo}};
+use crate::{App, player::{PlayerStatus, metadata::TrackInfo, Queue}};
 use crate::mpd::Changed;
 use crate::player;
 
@@ -65,7 +65,7 @@ impl Socket {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "t", rename_all = "kebab-case")]
 pub enum ServerMessage {
-    Queue { queue: Vec<QueueItem> },
+    Queue { queue: Queue },
     TrackChange { track: Option<TrackInfo> },
     Player { player: PlayerStatus },
 }

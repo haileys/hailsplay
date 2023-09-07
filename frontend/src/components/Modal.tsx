@@ -14,13 +14,21 @@ export default function Modal(props: Props) {
 
     return (
         <div class={css.container}>
-            <div class={css.backdrop} onClick={() => setModal(null)}></div>
+            <div
+                class={css.backdrop}
+                onClick={() => setModal(null)}
+                onTouchStart={() => setModal(null)}
+            />
             <div class={css.sheet}>
                 <div class={css.titleBar}>
                     <div class={css.title}>
                         {props.title}
                     </div>
-                    <button class={css.closeButton} onClick={() => setModal(null)}>
+                    <button
+                        class={css.closeButton}
+                        onClick={() => setModal(null)}
+                        onTouchStart={() => setModal(null)}
+                    >
                         <CloseIcon />
                     </button>
                 </div>

@@ -1,4 +1,4 @@
-import { Metadata, RadioStation, Id } from "./types";
+import { Metadata, RadioStation, Id, Url } from "./types";
 
 export type QueueAddResult = {
     mpd_id: Id,
@@ -31,11 +31,11 @@ export async function radioStations(): Promise<RadioStation[]> {
 
 // helpers from here on:
 
-function get(url: string): RequestBuilder {
+export function get(url: string): RequestBuilder {
     return new RequestBuilder("GET", url);
 }
 
-function post(url: string): RequestBuilder {
+export function post(url: string): RequestBuilder {
     return new RequestBuilder("POST", url);
 }
 
@@ -98,7 +98,7 @@ class RequestBuilder {
 
         return response.json();
     }
-};
+}
 
 function catchAbortErrors<T>(promise: Promise<T>): Promise<T | null> {
     return promise.catch((error) => {

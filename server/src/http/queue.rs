@@ -8,11 +8,11 @@ use hailsplay_protocol as proto;
 
 use crate::error::AppResult;
 use crate::mpd::{self, Mpd};
-use crate::player::{self, TrackId, QueueItem};
+use crate::player::{self, TrackId, Queue};
 use crate::player::metadata::{self, TrackInfo};
 use crate::{App, MediaRecord, ytdlp, MediaId};
 
-pub async fn index(app: State<App>) -> AppResult<Json<Vec<QueueItem>>> {
+pub async fn index(app: State<App>) -> AppResult<Json<Queue>> {
     let mut session = app.session().await?;
     Ok(Json(player::queue(&mut session).await?))
 }

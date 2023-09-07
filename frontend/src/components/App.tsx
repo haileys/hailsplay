@@ -1,6 +1,5 @@
-import { RouteContext, ModalContext, RouteId, ModalId, defaultRoute } from "../routes";
-import { useContext, useEffect, useErrorBoundary, useState } from "preact/hooks";
-import { createContext } from "preact";
+import { ModalContext, ModalId } from "../routes";
+import { useContext, useEffect, useErrorBoundary } from "preact/hooks";
 
 import Footer from "./Footer";
 import Modal from "./Modal";
@@ -10,7 +9,6 @@ import { ApiError } from "../api";
 import Player from "./Player";
 import css from "./App.module.css";
 import { ReactComponent as RoundedCorner } from "../assets/rounded-corner.svg";
-import { LiveContext, LiveSession } from "../socket";
 
 function renderModal(modal: ModalId) {
     if (modal === null) {
@@ -52,13 +50,15 @@ export function App() {
             <div class={css.header}>
                 <div class={css.appName}>{"hailsPlay"}</div>
             </div>
-            <div class={css.mainArea}>
+            <div class={css.insetContainer}>
                 <RoundedCorner class={`${css.roundedCorner} ${css.roundedCornerTopLeft}`} />
                 <RoundedCorner class={`${css.roundedCorner} ${css.roundedCornerTopRight}`} />
                 <RoundedCorner class={`${css.roundedCorner} ${css.roundedCornerBottomLeft}`} />
                 <RoundedCorner class={`${css.roundedCorner} ${css.roundedCornerBottomRight}`} />
-                <div class={css.clientArea}>
-                    <Player />
+                <div class={css.scrollContainer}>
+                    <div class={css.clientArea}>
+                        <Player />
+                    </div>
                 </div>
             </div>
             <Footer />
@@ -74,7 +74,7 @@ function useErrorHandling(setModal: (_: ModalId) => void) {
         setModal({ t: "error", message });
     };
 
-    useErrorBoundary((error, errorInfo) => { handleError(error); });
+    useErrorBoundary((error, _errorInfo) => { handleError(error); });
 
     useGlobalUnhandledRejectionHandler((ev: PromiseRejectionEvent) => {
         if (ev.reason instanceof ApiError) {

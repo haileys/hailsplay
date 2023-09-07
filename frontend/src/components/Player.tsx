@@ -1,14 +1,21 @@
 import css from "./Player.module.css";
-import iconUrl from "../assets/radio-soma-groovesalad.png";
 
-import { ReactComponent as PlayIcon } from "feather-icons/dist/icons/play.svg";
-import { ReactComponent as StopIcon } from "feather-icons/dist/icons/square.svg";
-import { ReactComponent as PauseIcon } from "feather-icons/dist/icons/pause.svg";
-import { ReactComponent as SkipBackIcon } from "feather-icons/dist/icons/skip-back.svg";
-import { ReactComponent as SkipForwardIcon } from "feather-icons/dist/icons/skip-forward.svg";
 import { LiveContext } from "../socket";
-import { PlayerStatus } from "../types";
 import { useContext } from "preact/hooks";
+import PlayerControls from "./PlayerControls";
+import { TrackInfo } from "src/types";
+
+export default function Player() {
+    return (
+        <>
+            <div class={css.player}>
+                <CurrentTrack />
+                <PlayerControls />
+            </div>
+            <Queue />
+        </>
+    );
+}
 
 function CurrentTrack() {
     const live = useContext(LiveContext);
@@ -37,60 +44,41 @@ function CurrentTrack() {
     )
 }
 
-function PlayerControls() {
+function Queue() {
     const live = useContext(LiveContext);
 
-    let player = live.player.value;
-    if (player === null) {
+    console.log("Queue");
+
+    let queue = live.queue.value;
+    if (queue === null) {
         return null;
     }
 
+    console.log("queue:", queue);
+
     return (
-        <>
-            <div class={css.playerControls}>
-                <button class={css.playerSecondaryControl}>
-                    <SkipBackIcon />
-                </button>
-                <PlayPauseButton player={player} />
-                <button class={css.playerSecondaryControl}>
-                    <SkipForwardIcon />
-                </button>
-            </div>
-        </>
+        <div class={css.queueList}>
+            {queue.items.map(item => (
+                <QueueItem track={item.track} key={item.id} />
+            ))}
+        </div>
     )
 }
 
-function PlayPauseButton(props: { player: PlayerStatus }) {
-    if (props.player.playing) {
-        switch (props.player.position.t) {
-            case "streaming":
-                return (
-                    <button class={`${css.playerPrimaryControl}`}>
-                        <StopIcon />
-                    </button>
-                );
-
-            case "elapsed":
-                return (
-                    <button class={`${css.playerPrimaryControl}`}>
-                        <PauseIcon />
-                    </button>
-                );
-        }
-    } else {
-        return (
-            <button class={`${css.playerPrimaryControl} ${css.playButton}`}>
-                <PlayIcon />
-            </button>
-        );
-    }
-}
-
-export default function() {
+function QueueItem(props: { track: TrackInfo }) {
     return (
-        <div class={css.player}>
-            <CurrentTrack />
-            <PlayerControls />
+        <div class={css.queueItem}>
+            <div class={css.queueItemArt}>
+                <img src={props.track.imageUrl} />
+            </div>
+            <div class={css.queueItemDetails}>
+                <div class={css.queueItemPrimaryLabel}>
+                    {props.track.primaryLabel}
+                </div>
+                <div class={css.queueItemSecondaryLabel}>
+                    {props.track.secondaryLabel}
+                </div>
+            </div>
         </div>
     );
 }

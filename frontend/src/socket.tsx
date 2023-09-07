@@ -1,4 +1,4 @@
-import { Attributes, Component, ComponentChild, ComponentChildren, Ref, createContext } from "preact";
+import { Component, ComponentChildren, createContext } from "preact";
 import { signal } from "@preact/signals";
 
 import ReconnectingWebSocket from "reconnecting-websocket";
@@ -22,7 +22,7 @@ export class SocketClient {
         this.ws.close();
     }
 
-    onopen(ev: Event) {
+    onopen(_: Event) {
         this.signals.reconnecting.value = false;
         console.log("websocket open");
     }
@@ -52,30 +52,36 @@ export class SocketClient {
         }
     }
 
-    onerror(ev: ErrorEvent) {
+    onerror(_: ErrorEvent) {
         console.log("websocket error");
     }
 }
 
-export function LiveSession(props: { children: ComponentChildren }) {
-    const [socket, setSocket] = useState<SocketClient | null>(null);
+export type LiveSessionProps = { children: ComponentChildren };
 
-    useEffect(() => {
-        setSocket(new SocketClient());
-        return () => {
-            if (socket !== null) {
-                socket.close();
-            }
-        }
-    }, []);
+export class LiveSession extends Component<LiveSessionProps> {
+    client: SocketClient;
+    signals: Live;
 
-    let signals = socket !== null ? socket.signals : new Live();
+    constructor(props: LiveSessionProps) {
+        console.log("LiveSession.constructor");
+        super(props);
+        this.client = new SocketClient();
+        this.signals = this.client.signals;
+    }
 
-    return (
-        <LiveContext.Provider value={signals}>
-            {props.children}
-        </LiveContext.Provider>
-    );
+    componentWillUnmount() {
+        console.log("LiveSession.componentWillUnmount");
+        this.client.close();
+    }
+
+    render() {
+        return (
+            <LiveContext.Provider value={this.signals}>
+                {this.props.children}
+            </LiveContext.Provider>
+        )
+    }
 }
 
 export class Live {

@@ -10,11 +10,14 @@ html {
     padding-top:env(safe-area-inset-top);
     padding-left:env(safe-area-inset-left);
     padding-right:env(safe-area-inset-right);
+
+    /* --safe-inset-bottom:env(safe-area-inset-bottom); */
+    --safe-inset-bottom:1rem;
 }
 
 @media only screen and (min-height:600px) {
     html {
-        padding-bottom:env(safe-area-inset-bottom);
+        padding-bottom:var(--safe-inset-bottom);
     }
 }
 

@@ -26,6 +26,7 @@ export type Queue = {
 };
 
 export type QueueItem = {
+    id: TrackId,
     position: number,
     track: TrackInfo,
 };
@@ -37,10 +38,16 @@ export type TrackInfo = {
 };
 
 export type PlayerStatus = {
-    playing: boolean,
-    position: PlayPosition,
     track: TrackId,
+    state: PlayState,
+    position: PlayPosition,
 };
+
+export type PlayState =
+    | "stopped"
+    | "loading"
+    | "playing"
+    ;
 
 export type PlayPosition =
     | { "t": "streaming" }

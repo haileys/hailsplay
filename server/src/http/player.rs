@@ -1,10 +1,22 @@
-use serde::{Serialize, Deserialize};
-use url::Url;
+use axum::extract::State;
+use axum::Json;
 
-#[derive(Serialize, Deserialize)]
-pub struct TrackInfo {
-    pub image_url: Url,
-    pub primary_label: String,
-    pub secondary_label: Option<String>,
-    pub stream: bool,
+use crate::{error::AppResult, App};
+
+pub async fn play(app: State<App>) -> AppResult<Json<()>> {
+    let mut session = app.session().await?;
+    session.mpd().play().await?;
+    Ok(Json(()))
+}
+
+pub async fn pause(app: State<App>) -> AppResult<Json<()>> {
+    let mut session = app.session().await?;
+    session.mpd().pause().await?;
+    Ok(Json(()))
+}
+
+pub async fn stop(app: State<App>) -> AppResult<Json<()>> {
+    let mut session = app.session().await?;
+    session.mpd().stop().await?;
+    Ok(Json(()))
 }

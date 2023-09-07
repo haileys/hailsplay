@@ -52,14 +52,14 @@ pub struct Changed {
     pub subsystems: Vec<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum PlayerState {
     Stop,
     Pause,
     Play,
 }
 
-#[derive(Debug, FromStr)]
+#[derive(Debug, Copy, Clone, FromStr)]
 pub struct Seconds(pub f64);
 
 #[derive(Debug)]
@@ -68,6 +68,7 @@ pub struct Status {
     pub song_id: Option<Id>,
     pub elapsed: Option<Seconds>,
     pub duration: Option<Seconds>,
+    pub audio_format: Option<String>,
 }
 
 impl Mpd {
@@ -124,6 +125,11 @@ impl Mpd {
         Ok(())
     }
 
+    pub async fn pause(&mut self) -> Result<()> {
+        self.command("pause", &[]).await??;
+        Ok(())
+    }
+
     pub async fn status(&mut self) -> Result<Status> {
         let resp = self.command("status", &[]).await??;
 
@@ -140,6 +146,7 @@ impl Mpd {
             song_id: resp.attributes.get_opt("songid")?,
             elapsed: resp.attributes.get_opt("elapsed")?,
             duration: resp.attributes.get_opt("duration")?,
+            audio_format: resp.attributes.get_opt("audio")?,
         })
     }
 

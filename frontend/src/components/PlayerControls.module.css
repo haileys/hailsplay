@@ -1,0 +1,39 @@
+.playerControls {
+    display:flex;
+    flex-flow:row nowrap;
+    justify-content:center;
+    align-items:center;
+    gap:2rem;
+}
+
+.playerControls button {
+    display:flex;
+    justify-content:center;
+    align-items:center;
+
+    outline:none;
+    border:1px solid var(--player-control-border-color);
+    background:var(--player-control-background-color);
+    color:var(--player-control-stroke-color);
+}
+
+.playerControls button svg {
+    width:70%;
+    height:70%;
+}
+
+.playerPrimaryControl {
+    width:4rem;
+    height:4rem;
+    border-radius:2rem;
+}
+
+.playButton {
+    padding-left:0.4rem;
+}
+
+.playerSecondaryControl {
+    width:2.5rem;
+    height:2.5rem;
+    border-radius:1.5rem;
+}
