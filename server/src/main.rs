@@ -36,9 +36,10 @@ enum Cmd {
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    pretty_env_logger::formatted_builder()
+    pretty_env_logger::formatted_timed_builder()
         .filter(Some("hailsplay"), LevelFilter::Debug)
         .filter(None, LevelFilter::Info)
+        .parse_default_env()
         .init();
 
     let cmd = Cmd::from_args();

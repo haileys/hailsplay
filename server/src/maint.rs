@@ -13,7 +13,7 @@ pub struct MaintenaceTask {
     _handle: oneshot::Sender<()>,
 }
 
-pub async fn start(app: App) -> MaintenaceTask {
+pub fn start(app: App) -> MaintenaceTask {
     let (keepalive_tx, keepalive_rx) = oneshot::channel();
 
     let task = task(app.clone());
@@ -48,6 +48,10 @@ async fn task(app: App) {
 enum NoReturn {}
 
 async fn run_session(session: &mut Session) -> anyhow::Result<NoReturn> {
+    log::info!("starting maintenance session");
+
+    clear_radio_stations_from_history(session).await?;
+
     loop {
         let changed = session.mpd().idle().await?;
 

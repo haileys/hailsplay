@@ -77,21 +77,30 @@ async fn handle_socket(app: axum::extract::State<App>, ws: WebSocket, _: SocketA
         current_track: None,
     };
 
+    // send initial state to client
+    send_player_status(&mut state).await?;
+    send_playlist(&mut state).await?;
+
+    // watch events
     loop {
         let changed = state.session.mpd().idle().await?;
 
         for event in changed.events() {
             match event {
-                MpdEvent::Playlist => {
-                    let queue = api::queue(&mut state.session).await?;
-                    state.socket.send(ServerMessage::Queue { queue }).await?;
-                }
-                MpdEvent::Player => handle_player_status(&mut state).await?,
+                MpdEvent::Playlist => send_playlist(&mut state).await?,
+                MpdEvent::Player => send_player_status(&mut state).await?,
             }
         }
     }
 }
-async fn handle_player_status(state: &mut State) -> anyhow::Result<()> {
+
+async fn send_playlist(state: &mut State) -> anyhow::Result<()> {
+    let queue = api::queue(&mut state.session).await?;
+    state.socket.send(ServerMessage::Queue { queue }).await?;
+    Ok(())
+}
+
+async fn send_player_status(state: &mut State) -> anyhow::Result<()> {
     let player = api::status(&mut state.session).await?;
 
     // if current track has changed since the client last knew about
