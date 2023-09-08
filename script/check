@@ -12,10 +12,11 @@ log "updating npm packages"
 try-command npm install
 
 log "typechecking frontend"
-try-command-defer tsc
+try-command-async tsc
 
 log "linting frontend"
-try-command-defer eslint --ext .ts,tsx --ignore-path .gitignore .
+try-command-async eslint --ext .ts,tsx --ignore-path .gitignore .
 
-check-deferred-errors
+await-commands
+
 success "check ok!"

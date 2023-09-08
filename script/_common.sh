@@ -45,25 +45,42 @@ cargo-target-dir() {
     echo "${CARGO_TARGET_DIR:-target}"
 }
 
-COMMAND_FAILED=
-try-command-defer() {
-    local log="/tmp/try-command.$$.log"
+LOG_NUMBER=0
+declare -A LOG_FILES
+declare -A COMMANDS
+try-command-async() {
+    local log="/tmp/try-command.$$.$((LOG_NUMBER++)).log"
     truncate -s 0 "$log"
-    if ! ( "$@" ) &> "$log"; then
-        error "command failed:" "$@"
-        cat "$log"
-        COMMAND_FAILED=1
-    fi
-    rm -f "$log"
+
+    ( "$@" ) &> "$log" &
+    local child=$!
+
+    LOG_FILES[$child]="$log"
+    COMMANDS[$child]="$*"
 }
 
 try-command() {
-    try-command-defer "$@"
-    check-deferred-errors
+    try-command-async "$@"
+    await-commands
 }
 
-check-deferred-errors() {
-    if [ -n "$COMMAND_FAILED" ]; then
+await-commands() {
+    local failed=
+    local pid
+
+    while [ "${#COMMANDS[@]}" -gt 0 ]; do
+        if ! wait -n -p pid; then
+            error "command failed:" "${COMMANDS[$pid]}"
+            cat "${LOG_FILES[$pid]}"
+            failed=1
+        fi
+
+        rm -f "${LOG_FILES[$pid]}"
+        unset COMMANDS[$pid]
+        unset LOG_FILES[$pid]
+    done
+
+    if [ -n "$failed" ]; then
         error "some commands failed, exiting"
         exit 1
     fi
