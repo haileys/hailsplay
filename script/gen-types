@@ -14,5 +14,5 @@ try-command wasm-bindgen "$(cargo-target-dir)/wasm32-unknown-unknown/debug/hails
     --target bundler \
     --debug
 
-cp "$TMP/hailsplay_protocol.d.ts" protocol.d.ts
+cp "$TMP/hailsplay_protocol.d.ts" protocol/protocol.d.ts
 rm -rf "$TMP"
