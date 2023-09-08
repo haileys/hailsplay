@@ -14,7 +14,7 @@
 
 3. Start hailsplay server:
    ```sh-session
-   $ cargo run --bin hailsplay
+   $ cargo run -- server
    ```
 
 4. Run frontend dev server:
@@ -22,4 +22,4 @@
    $ script/dev-frontend
    ```
 
-5. Access the app via the URL shown by the frontend dev server. The dev server proxies back to the running instance of the hailsplay server, you can configure the proxy backend url in `frontend/vite.config.ts`
+5. Access the app via the URL shown by the frontend dev server. The dev server proxies back to the running instance of the hailsplay server. You can configure the proxy backend url in `frontend/vite.config.ts`, this is useful for developing the frontend against a real running server.

@@ -1,0 +1,9 @@
+#!/bin/bash -e
+source "$(dirname "$0")/_common.sh"
+
+cd frontend
+
+log "installing npm packages"
+try-command npm i
+
+exec npx vite --host "0.0.0.0" --port 8080
