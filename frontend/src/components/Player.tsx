@@ -1,9 +1,10 @@
 import css from "./Player.module.css";
 
 import { LiveContext } from "../socket";
-import { useContext } from "preact/hooks";
+import { useContext, useEffect, useRef, useState } from "preact/hooks";
 import PlayerControls from "./PlayerControls";
-import { QueueItem, TrackId, TrackInfo } from "../types";
+import { PlayerStatus, Queue, QueueItem, TrackId, TrackInfo } from "../types";
+import { Component, Ref, RefObject, createRef } from "preact";
 
 export default function Player() {
     const live = useContext(LiveContext);
@@ -12,21 +13,47 @@ export default function Player() {
         return null;
     }
 
-    let currentTrackId = live.player.value && live.player.value.track;
-    let { history, queue } = partitionQueue(currentTrackId, live.queue.value.items)
+    if (live.player.value == null) {
+        return null;
+    }
 
-    return (
-        <>
-            <QueueList items={history} />
-            <div class={css.player}>
-                <CurrentTrack />
-                <PlayerControls />
-            </div>
-            <QueueList items={queue} />
-        </>
-    );
+    return (<LoadedPlayer queue={live.queue.value} player={live.player.value} />);
 }
 
+type LoadedPlayerProps = { queue: Queue, player: PlayerStatus };
+
+class LoadedPlayer extends Component<LoadedPlayerProps> {
+    playerRef: RefObject<HTMLDivElement>;
+
+    constructor(props: LoadedPlayerProps) {
+        super(props);
+        this.playerRef = createRef();
+    }
+
+    render() {
+        let currentTrackId = this.props.player.track;
+        let { history, queue } = partitionQueue(currentTrackId, this.props.queue.items)
+
+        return (
+            <>
+                <QueueList items={history} scrollSnapStop={true} />
+                <div class={css.player} ref={this.playerRef}>
+                    <CurrentTrack />
+                    <PlayerControls />
+                </div>
+                <QueueList items={queue} scrollSnapStop={true} />
+            </>
+        );
+    }
+
+    componentDidMount(): void {
+        if (this.playerRef.current === null) {
+            throw "playerRef.current is null in LoadedPlayer.componentDidMount";
+        }
+
+        this.playerRef.current.scrollIntoView({ behavior: "instant" });
+    }
+}
 
 function partitionQueue(current: TrackId | null, items: QueueItem[]): { history: QueueItem[], queue: QueueItem[] } {
     let i = 0;
@@ -85,19 +112,23 @@ function CurrentTrack() {
     )
 }
 
-function QueueList(props: { items: QueueItem[] }) {
+function QueueList(props: { items: QueueItem[], scrollSnapStop: boolean }) {
     return (
-        <div class={css.queueList}>
+        <>
             {props.items.map(item => (
-                <QueueListItem track={item.track} key={item.id} />
+                <QueueListItem track={item.track} scrollSnapStop={props.scrollSnapStop} key={item.id} />
             ))}
-        </div>
+        </>
     )
 }
 
-function QueueListItem(props: { track: TrackInfo }) {
+function QueueListItem(props: { track: TrackInfo, scrollSnapStop: boolean }) {
+    let itemClassName = props.scrollSnapStop
+        ? `${css.queueItem} ${css.scrollSnapStop}`
+        : css.queueItem;
+
     return (
-        <div class={css.queueItem}>
+        <div class={itemClassName}>
             <div class={css.queueItemArt}>
                 { props.track.imageUrl ? (
                     <img src={props.track.imageUrl} class={css.image} />

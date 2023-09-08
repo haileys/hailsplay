@@ -9,6 +9,9 @@
     padding-top:10vw;
     padding-bottom:1.5rem;
     gap:1.5rem;
+
+    scroll-snap-align:start;
+    scroll-snap-stop:always;
 }
 
 .coverArtContainer {
@@ -46,10 +49,6 @@
     color:var(--player-secondary-label-color);
 }
 
-.queueList {
-    overflow-x:hidden;
-}
-
 .queueItem {
     display:flex;
     flex-flow:row nowrap;
@@ -57,6 +56,11 @@
     padding:1rem;
     gap:1rem;
     border-bottom:1px solid var(--player-card-border);
+}
+
+.scrollSnapStop {
+    scroll-snap-align:start;
+    scroll-snap-stop:normal;
 }
 
 .queueItemArt {

@@ -28,6 +28,7 @@
     height:100%;
     z-index:0;
     overflow-y:auto;
+    scroll-snap-type:y mandatory;
 }
 
 .clientArea {
