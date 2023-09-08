@@ -1,10 +1,8 @@
 import { defineConfig } from "vite";
 import preact from "@preact/preset-vite";
 import svgr from "vite-plugin-svgr";
-// import eslint from "vite-plugin-eslint";
 
-// const PROXY_BACKEND = "localhost:3000";
-const PROXY_BACKEND = "cabbit.home.hailey.lol:3000";
+const PROXY_BACKEND = "localhost:3000";
 
 // https://vitejs.dev/config/
 export default defineConfig({

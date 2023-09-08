@@ -4,7 +4,7 @@
 
 1. Install tool dependencies:
    ```sh-session
-   $ cargo install trunk
+   $ cargo install wasm-bindgen-cli
    ```
 
 2. Start mpd:
@@ -19,6 +19,7 @@
 
 4. Run frontend dev server:
    ```sh-session
-   $ cd frontend
-   frontend$ trunk serve --address 0.0.0.0
+   $ script/dev-frontend
    ```
+
+5. Access the app via the URL shown by the frontend dev server. The dev server proxies back to the running instance of the hailsplay server, you can configure the proxy backend url in `frontend/vite.config.ts`
