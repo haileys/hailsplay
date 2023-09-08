@@ -1,4 +1,4 @@
-import { Metadata, RadioStation, TrackId, Url, AddResponse } from "./types";
+import { Metadata, RadioStation, Url, AddResponse } from "./types";
 
 export async function queueAdd(url: Url, abortSignal: AbortSignal | null): Promise<AddResponse | null> {
     return await post("/api/queue")

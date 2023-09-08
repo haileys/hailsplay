@@ -30,7 +30,7 @@ function StationButton(props: { station: RadioStation }) {
 
     let onPick = (ev: Event) => {
         ev.preventDefault();
-        tuneRadio(props.station.stream_url);
+        tuneRadio(props.station.streamUrl);
         setModal(null);
     };
 
@@ -39,7 +39,7 @@ function StationButton(props: { station: RadioStation }) {
             <img
                 title={props.station.name}
                 alt={props.station.name}
-                src={props.station.icon_url}
+                src={props.station.iconUrl}
                 draggable={false}
                 onTouchStart={onPick}
             />

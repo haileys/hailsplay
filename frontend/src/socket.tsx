@@ -2,9 +2,10 @@ import { Component, ComponentChildren, createContext } from "preact";
 import { signal } from "@preact/signals";
 
 import ReconnectingWebSocket from "reconnecting-websocket";
+// eslint-disable-next-line no-duplicate-imports
 import type { Event, ErrorEvent, CloseEvent } from "reconnecting-websocket";
+
 import { PlayerStatus, Queue, TrackInfo, ServerMessage } from "./types";
-import { useEffect, useState } from "preact/hooks";
 
 export class SocketClient {
     private ws: ReconnectingWebSocket;

@@ -1,5 +1,5 @@
 {
-	"name": "example",
+	"name": "hailsplay-frontend",
 	"private": true,
 	"type": "module",
 	"scripts": {

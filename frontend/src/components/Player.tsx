@@ -85,7 +85,7 @@ function CurrentTrack() {
     )
 }
 
-function QueueList(props: { items: QueueList[] }) {
+function QueueList(props: { items: QueueItem[] }) {
     return (
         <div class={css.queueList}>
             {props.items.map(item => (

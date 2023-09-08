@@ -1,0 +1,21 @@
+#!/bin/bash -e
+source "$(dirname "$0")/_common.sh"
+
+log "checking hailsplay"
+try-command cargo check --package hailsplay
+
+script/gen-types
+
+cd frontend
+
+log "updating npm packages"
+try-command npm install
+
+log "typechecking frontend"
+try-command-defer tsc
+
+log "linting frontend"
+try-command-defer eslint --ext .ts,tsx --ignore-path .gitignore .
+
+check-deferred-errors
+success "check ok!"

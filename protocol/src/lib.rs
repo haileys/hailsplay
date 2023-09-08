@@ -84,6 +84,7 @@ protocol! {
     }
 
     #[derive(Serialize, Deserialize, Debug)]
+    #[serde(rename_all = "camelCase")]
     pub struct RadioStation {
         pub name: String,
         pub icon_url: Url,

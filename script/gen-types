@@ -1,0 +1,18 @@
+#!/bin/bash -e
+source "$(dirname "$0")/_common.sh"
+
+TMP="/tmp/gen-types.$$"
+mkdir -p "$TMP"
+
+log "building protocol"
+try-command cargo build --lib --target wasm32-unknown-unknown --package hailsplay-protocol
+
+log "generating bindings"
+try-command wasm-bindgen "$(cargo-target-dir)/wasm32-unknown-unknown/debug/hailsplay_protocol.wasm" \
+    --out-dir "$TMP" \
+    --typescript \
+    --target bundler \
+    --debug
+
+cp "$TMP/hailsplay_protocol.d.ts" protocol.d.ts
+rm -rf "$TMP"

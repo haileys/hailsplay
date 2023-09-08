@@ -2,8 +2,8 @@
 /* eslint-disable */
 export interface RadioStation {
     name: string;
-    icon_url: Url;
-    stream_url: Url;
+    iconUrl: Url;
+    streamUrl: Url;
 }
 
 export interface TuneParams {
