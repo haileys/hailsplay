@@ -6,12 +6,99 @@
     background-color:var(--player-card-background);
     border-bottom:1px solid var(--player-card-border);
 
-    padding-top:10vw;
     padding-bottom:1.5rem;
     gap:1.5rem;
 
     scroll-snap-align:start;
     scroll-snap-stop:always;
+}
+
+.trackTransitionContainer {
+    display:flex;
+    flex-flow:row nowrap;
+    align-items:start;
+
+    width:100cqw;
+    padding-top:10vw;
+
+    overflow-x:hidden;
+
+    --transition-speed:0.25s;
+}
+
+@keyframes transitionOutToLeft {
+    from {
+        opacity:1;
+        margin-left:0cqw;
+        transform:scale(1.0);
+    }
+    to {
+        opacity:0;
+        margin-left:-100cqw;
+        transform:scale(1.0);
+    }
+}
+
+@keyframes transitionInFromLeft {
+    from {
+        opacity:0;
+        margin-left:-100cqw;
+        transform:scale(1.0);
+    }
+    to {
+        opacity:1;
+        margin-left:0cqw;
+        transform:scale(1.0);
+    }
+}
+
+@keyframes transitionInFromRight {
+    from {
+        opacity:0;
+    }
+    to {
+        opacity:1;
+    }
+}
+
+@keyframes transitionOutToRight {
+    from {
+        opacity:1;
+    }
+    to {
+        opacity:0;
+    }
+}
+
+.transitionOutToLeft {
+    animation:var(--transition-speed) ease-out 0s transitionOutToLeft;
+    opacity:0;
+    margin-left:-100cqw;
+}
+
+.transitionInFromRight {
+    animation:var(--transition-speed) ease-in 0s transitionInFromRight;
+}
+
+.transitionInFromLeft {
+    animation:var(--transition-speed) ease-in 0s transitionInFromLeft;
+}
+
+.transitionOutToRight {
+    animation:var(--transition-speed) ease-out 0s transitionOutToRight;
+    opacity:0;
+}
+
+.trackInfo {
+    display:flex;
+    flex-flow:column nowrap;
+    align-items:center;
+
+    width:100cqw;
+    min-width:100cqw;
+    max-width:100cqw;
+
+    gap:1.5rem;
 }
 
 .coverArtContainer {
@@ -37,6 +124,7 @@
 }
 
 .trackPrimaryLabel {
+    height:2rem;
     font-size:1.4rem;
     font-weight:bold;
     text-align:center;
@@ -44,6 +132,7 @@
 }
 
 .trackSecondaryLabel {
+    height:1.5rem;
     font-size:1rem;
     text-align:center;
     color:var(--player-secondary-label-color);

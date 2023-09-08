@@ -3,6 +3,9 @@ import preact from "@preact/preset-vite";
 import svgr from "vite-plugin-svgr";
 // import eslint from "vite-plugin-eslint";
 
+// const PROXY_BACKEND = "localhost:3000";
+const PROXY_BACKEND = "cabbit.home.hailey.lol:3000";
+
 // https://vitejs.dev/config/
 export default defineConfig({
 	plugins: [
@@ -13,16 +16,16 @@ export default defineConfig({
 	server: {
 		proxy: {
 			"/ws": {
-				target: "ws://localhost:3000",
+				target: "ws://" + PROXY_BACKEND,
 				ws: true,
 			},
 			"/api": {
-				target: "http://localhost:3000",
+				target: "http://" + PROXY_BACKEND,
 			},
 			// we need to use a regex here to avoid conflicting with vite's
 			// own assets route:
 			"^/assets/\\d+/[0-9a-f]+/.*": {
-				target: "http://localhost:3000",
+				target: "http://" + PROXY_BACKEND,
 			},
 		}
 	}

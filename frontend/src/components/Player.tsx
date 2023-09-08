@@ -1,10 +1,10 @@
 import css from "./Player.module.css";
 
-import { LiveContext } from "../socket";
-import { useContext, useEffect, useRef, useState } from "preact/hooks";
+import { LiveContext, OptimisticTrack } from "../socket";
+import { useContext } from "preact/hooks";
 import PlayerControls from "./PlayerControls";
-import { PlayerStatus, Queue, QueueItem, TrackId, TrackInfo } from "../types";
-import { Component, Ref, RefObject, createRef } from "preact";
+import { PlayerStatus, Queue, QueueItem, TrackInfo } from "../types";
+import { Component, RefObject, createRef } from "preact";
 
 export default function Player() {
     const live = useContext(LiveContext);
@@ -17,10 +17,16 @@ export default function Player() {
         return null;
     }
 
-    return (<LoadedPlayer queue={live.queue.value} player={live.player.value} />);
+    return (
+        <LoadedPlayer
+            queue={live.queue.value}
+            player={live.player.value}
+            optimistic={live.optimisticTrack.value}
+        />
+    );
 }
 
-type LoadedPlayerProps = { queue: Queue, player: PlayerStatus };
+type LoadedPlayerProps = { queue: Queue, player: PlayerStatus, optimistic: OptimisticTrack | null };
 
 class LoadedPlayer extends Component<LoadedPlayerProps> {
     playerRef: RefObject<HTMLDivElement>;
@@ -31,85 +37,161 @@ class LoadedPlayer extends Component<LoadedPlayerProps> {
     }
 
     render() {
-        let currentTrackId = this.props.player.track;
-        let { history, queue } = partitionQueue(currentTrackId, this.props.queue.items)
+        let { history, queue } = this.partitionedQueue()
 
         return (
             <>
                 <QueueList items={history} scrollSnapStop={true} />
                 <div class={css.player} ref={this.playerRef}>
-                    <CurrentTrack />
-                    <PlayerControls />
+                    <TrackTransitionContainer />
+                    <PlayerControls onChangeTrack={() => this.scrollToPlayer()} />
                 </div>
                 <QueueList items={queue} scrollSnapStop={true} />
             </>
         );
     }
 
-    componentDidMount(): void {
-        if (this.playerRef.current === null) {
-            throw "playerRef.current is null in LoadedPlayer.componentDidMount";
-        }
+    partitionedQueue(): { history: QueueItem[], queue: QueueItem[] } {
+        let i = 0;
 
-        this.playerRef.current.scrollIntoView({ behavior: "instant" });
-    }
-}
+        let currentTrackId = this.props.player.track;
+        let items = this.props.queue.items;
 
-function partitionQueue(current: TrackId | null, items: QueueItem[]): { history: QueueItem[], queue: QueueItem[] } {
-    let i = 0;
+        // collect all queue items before current into history
+        let history = [];
+        if (currentTrackId !== null) {
+            for (; i < items.length; i++) {
+                if (items[i].id === currentTrackId) {
+                    break;
+                }
 
-    let history = [];
-    if (current !== null) {
-        for (; i < items.length; i++) {
-            if (items[i].id === current) {
-                break;
+                history.push(items[i]);
             }
+        }
 
-            history.push(items[i]);
+        // collect and skip past current track
+        let currentTrack = i < items.length ? items[i] : null;
+        i++;
+
+        // collect all remaining queue items into queue
+        let queue = [];
+        for (; i < items.length; i++) {
+            queue.push(items[i]);
+        }
+
+        // if we have a skip forward or skip backward, adjust partitions accordingly
+        switch (this.props.optimistic?.transition) {
+            case "previous":
+                // we skipped backward, remove last item from history
+                // and insert current track into the front of the queue
+                history.pop();
+                if (currentTrack) {
+                    queue.unshift(currentTrack)
+                }
+                break;
+            case "next":
+                // we skipped forward, remove first item from queue and push
+                // current track to the end of history (the Fukuyama Zone)
+                queue.shift();
+                if (currentTrack) {
+                    history.push(currentTrack);
+                }
+                break;
+        }
+
+        return { history, queue };
+    }
+
+    componentDidMount(): void {
+        this.scrollToPlayer();
+    }
+
+    componentDidUpdate(previousProps: Readonly<LoadedPlayerProps>): void {
+        let trackChanged = previousProps.player.track !== this.props.player.track;
+        let optimisticChanged = previousProps.optimistic !== this.props.optimistic;
+
+        // both of these events can affect scroll position
+        if (trackChanged || optimisticChanged) {
+            this.scrollToPlayer();
         }
     }
 
-    // skip past current track
-    i++;
-
-    let queue = [];
-    for (; i < items.length; i++) {
-        queue.push(items[i]);
+    scrollToPlayer(): void {
+        if (this.playerRef.current) {
+            this.playerRef.current.scrollIntoView({ behavior: "instant" });
+        }
     }
-
-    return { history, queue };
 }
 
-function CurrentTrack() {
+function TrackTransitionContainer() {
     const live = useContext(LiveContext);
 
-    let track = live.currentTrack.value;
-    if (track === null) {
+    let currentTrack = live.currentTrack.value;
+    if (!currentTrack) {
         return null;
     }
 
+    let optimistic = live.optimisticTrack.value;
+    if (!optimistic?.transition) {
+        return (
+            <div class={css.trackTransitionContainer}>
+                <div key="current-track">
+                    <Track track={currentTrack} />
+                </div>
+            </div>
+        );
+    }
+
+    switch (optimistic.transition) {
+        case "next":
+            return (
+                <div class={css.trackTransitionContainer}>
+                    <div key="current-track" class={css.transitionOutToLeft}>
+                        <Track track={currentTrack} />
+                    </div>
+                    <div key="next-track" class={css.transitionInFromRight}>
+                        <Track track={optimistic.track} />
+                    </div>
+                </div>
+            );
+
+        case "previous":
+            return (
+                <div class={css.trackTransitionContainer}>
+                    <div key="previous-track" class={css.transitionInFromLeft}>
+                        <Track track={optimistic.track} />
+                    </div>
+                    <div key="current-track" class={css.transitionOutToRight}>
+                        <Track track={currentTrack} />
+                    </div>
+                </div>
+            );
+    }
+}
+
+function Track(props: { track: TrackInfo }) {
     return (
-        <>
+        <div class={css.trackInfo}>
             <div class={css.coverArtContainer}>
                 <div class={css.coverArtInset}>
-                    { track.imageUrl ? (
-                        <img src={track.imageUrl} class={css.image} />
+                    { props.track.imageUrl ? (
+                        <img src={props.track.imageUrl} class={css.image} />
                     ) : (
                         // TODO - handle no cover art case
                         null
                     ) }
                 </div>
             </div>
-            <div class={css.trackInfo}>
+            <div>
                 <div class={css.trackPrimaryLabel}>
-                    {track.primaryLabel}
+                    {props.track.primaryLabel}
                 </div>
                 <div class={css.trackSecondaryLabel}>
-                    {track.secondaryLabel}
+                    {props.track.secondaryLabel}
                 </div>
             </div>
-        </>
-    )
+        </div>
+    );
 }
 
 function QueueList(props: { items: QueueItem[], scrollSnapStop: boolean }) {

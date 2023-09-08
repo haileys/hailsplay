@@ -1,17 +1,19 @@
-import css from "./PlayerControls.module.css";
-
 import { ReactComponent as PlayIcon } from "feather-icons/dist/icons/play.svg";
 import { ReactComponent as StopIcon } from "feather-icons/dist/icons/square.svg";
 import { ReactComponent as PauseIcon } from "feather-icons/dist/icons/pause.svg";
 import { ReactComponent as SkipBackIcon } from "feather-icons/dist/icons/skip-back.svg";
 import { ReactComponent as SkipForwardIcon } from "feather-icons/dist/icons/skip-forward.svg";
+import { useContext } from "preact/hooks";
+
 import { LiveContext } from "../socket";
 import { PlayState, PlayerStatus } from "../types";
 import { post } from "../api";
-import { useContext } from "preact/hooks";
+import { getNextTrack, getPreviousTrack } from "../player";
+
+import css from "./PlayerControls.module.css";
 import { LoadingSpinner } from "./LoadingSpinner";
 
-export default function PlayerControls() {
+export default function PlayerControls(props: { onChangeTrack: () => void }) {
     const live = useContext(LiveContext);
 
     let player = live.player.value;
@@ -23,6 +25,26 @@ export default function PlayerControls() {
         if (live.player.value) {
             live.player.value = { ...live.player.value, state };
         }
+    };
+
+    let setOptimisticTrack = (transition: "next" | "previous", getter: typeof getNextTrack) => {
+        if (live.player.value === null) {
+            return;
+        }
+
+        if (live.queue.value === null) {
+            return;
+        }
+
+        let track = getter(live.player.value, live.queue.value);
+
+        if(track === null) {
+            return;
+        }
+
+        live.optimisticTrack.value = { transition, track };
+
+        props.onChangeTrack();
     };
 
     let onPlayAction = async (action: PlayAction) => {
@@ -44,11 +66,13 @@ export default function PlayerControls() {
 
     let onSkipNext = async () => {
         setOptimisticState("loading");
+        setOptimisticTrack("next", getNextTrack);
         await post("/api/player/skip-next").response();
     };
 
     let onSkipBack = async() => {
         setOptimisticState("loading");
+        setOptimisticTrack("previous", getPreviousTrack);
         await post("/api/player/skip-back").response();
     };
 

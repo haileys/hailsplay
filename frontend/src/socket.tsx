@@ -45,6 +45,7 @@ export class SocketClient {
 
             case "track-change":
                 this.signals.currentTrack.value = message.track;
+                this.signals.optimisticTrack.value = null;
                 break;
 
             case "player":
@@ -89,8 +90,16 @@ export class Live {
     reconnecting = signal<boolean>(false);
     queue = signal<Queue | null>(null);
     player = signal<PlayerStatus | null>(null);
+
     currentTrack = signal<TrackInfo | null>(null);
+    optimisticTrack = signal<OptimisticTrack | null>(null);
 }
+
+export type OptimisticTrack =
+    | { transition: null, track: TrackInfo }
+    | { transition: "next", track: TrackInfo }
+    | { transition: "previous", track: TrackInfo }
+    ;
 
 // just make one global socket client
 export const LiveContext = createContext<Live>(new Live());
