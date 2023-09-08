@@ -6,6 +6,8 @@ pub mod metadata;
 use hailsplay_protocol::{TrackId, PlayPosition, PlayState, PlayerStatus, Queue, QueueItem};
 use crate::mpd::{self, Seconds, Status};
 
+use self::metadata::TrackKind;
+
 pub async fn status(session: &mut Session) -> anyhow::Result<PlayerStatus> {
     let status = session.mpd().status().await?;
 
@@ -16,6 +18,33 @@ pub async fn status(session: &mut Session) -> anyhow::Result<PlayerStatus> {
         state: play_state(&status),
         position: play_position(&status),
     })
+}
+
+pub async fn queue(session: &mut Session) -> anyhow::Result<Queue> {
+    let playlist = session.mpd().playlistinfo().await?;
+
+    let mut items = Vec::new();
+
+    for item in playlist.items {
+        let id = item.id.clone().into();
+        let position = item.pos;
+        let item = metadata::identify(session, &item).await?;
+        let track = metadata::track_info(session, &item).await?;
+
+        items.push(QueueItem {
+            id,
+            position,
+            track,
+        });
+    }
+
+    Ok(Queue { items })
+}
+
+pub async fn track(session: &mut Session, id: &TrackId) -> anyhow::Result<Option<TrackKind>> {
+    // TODO - we need to dig the "track doesn't exist" error out of mpd:
+    let item = session.mpd().playlistid(&id.clone().into()).await?;
+    metadata::identify(session, &item).await.map(Some)
 }
 
 fn play_state(status: &Status) -> PlayState {
@@ -42,21 +71,4 @@ fn play_position(status: &Status) -> Option<PlayPosition> {
             Some(PlayPosition::Elapsed { time: 0.0, duration: duration })
         }
     }
-}
-
-pub async fn queue(session: &mut Session) -> anyhow::Result<Queue> {
-    let playlist = session.mpd().playlistinfo().await?;
-
-    let mut items = Vec::new();
-
-    for item in playlist.items {
-        let track = metadata::for_playlist_item(&mut *session, &item).await?;
-        items.push(QueueItem {
-            id: item.id.into(),
-            position: item.pos,
-            track,
-        });
-    }
-
-    Ok(Queue { items })
 }

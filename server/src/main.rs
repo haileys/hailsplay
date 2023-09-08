@@ -1,11 +1,12 @@
+mod api;
 mod config;
 mod db;
 mod error;
 mod frontend;
 mod fs;
 mod http;
+mod maint;
 mod mpd;
-mod api;
 mod tools;
 mod ytdlp;
 
@@ -62,13 +63,16 @@ async fn run(config: Config) -> anyhow::Result<()> {
     let database = db::open(&config.storage.database).await?;
 
     let app = App::new(config, working, database);
-    let router = http::routes(app);
+    let router = http::routes(app.clone());
     let router = frontend::serve(router);
 
     let fut = axum::Server::bind(&"0.0.0.0:3000".parse()?)
         .serve(router.into_make_service_with_connect_info::<SocketAddr>());
 
     log::info!("Listening on 0.0.0.0:3000");
+
+    // start maintenance task
+    let _maint = maint::start(app.clone());
 
     fut.await?;
 

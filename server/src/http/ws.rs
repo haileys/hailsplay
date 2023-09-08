@@ -1,16 +1,16 @@
-use std::{net::SocketAddr, mem::take};
+use std::net::SocketAddr;
 
-use axum::extract::{State, ConnectInfo, WebSocketUpgrade};
+use axum::extract::{ConnectInfo, WebSocketUpgrade};
 use axum::extract::ws::{WebSocket, Message};
 use axum::response::IntoResponse;
 
 use crate::App;
-use crate::mpd::Changed;
-use crate::api;
-use hailsplay_protocol::{ClientMessage, ServerMessage};
+use crate::mpd::MpdEvent;
+use crate::api::{self, Session};
+use hailsplay_protocol::{ClientMessage, ServerMessage, TrackId};
 
 pub async fn handler(
-    app: State<App>,
+    app: axum::extract::State<App>,
     ws: WebSocketUpgrade,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
 ) -> impl IntoResponse {
@@ -62,66 +62,57 @@ impl Socket {
     }
 }
 
-async fn handle_socket(app: State<App>, ws: WebSocket, _: SocketAddr) -> anyhow::Result<()> {
-    let mut session = app.session().await?;
+struct State {
+    socket: Socket,
+    session: Session,
+    current_track: Option<TrackId>,
+}
 
-    let mut socket = Socket { ws };
+async fn handle_socket(app: axum::extract::State<App>, ws: WebSocket, _: SocketAddr) -> anyhow::Result<()> {
+    let session = app.session().await?;
 
-    let mut reload = Reload::new();
-    let mut current_track = None;
+    let mut state = State {
+        socket: Socket { ws },
+        session,
+        current_track: None,
+    };
 
     loop {
-        if take(&mut reload.playlist) {
-            let queue = api::queue(&mut session).await?;
-            socket.send(ServerMessage::Queue { queue }).await?;
-        }
+        let changed = state.session.mpd().idle().await?;
 
-        if take(&mut reload.player) {
-            let player = api::status(&mut session).await?;
-
-            // if current track has changed since the client last knew about
-            // it, send an update
-            if player.track != current_track {
-                current_track = player.track.clone();
-
-                let track = match &player.track {
-                    Some(id) => Some(api::metadata::load(&mut session, id).await?),
-                    None => None,
-                };
-
-                socket.send(ServerMessage::TrackChange { track }).await?;
-            }
-
-            socket.send(ServerMessage::Player { player }).await?;
-        }
-
-        let changed = session.mpd().idle().await?;
-        reload.set(changed);
-    }
-}
-
-struct Reload {
-    playlist: bool,
-    player: bool,
-}
-
-impl Reload {
-    pub fn new() -> Self {
-        Reload {
-            playlist: true,
-            player: true,
-        }
-    }
-
-    pub fn set(&mut self, changed: Changed) {
-        for sys in changed.subsystems {
-            match sys.as_str() {
-                "playlist" => { self.playlist = true; }
-                "player" => { self.player = true; }
-                _ => {
-                    log::warn!("unknown subsystem: {sys}");
+        for event in changed.events() {
+            match event {
+                MpdEvent::Playlist => {
+                    let queue = api::queue(&mut state.session).await?;
+                    state.socket.send(ServerMessage::Queue { queue }).await?;
                 }
+                MpdEvent::Player => handle_player_status(&mut state).await?,
             }
         }
     }
+}
+async fn handle_player_status(state: &mut State) -> anyhow::Result<()> {
+    let player = api::status(&mut state.session).await?;
+
+    // if current track has changed since the client last knew about
+    // it, send an update
+    if player.track != state.current_track {
+        state.current_track = player.track.clone();
+
+        let track = match &player.track {
+            Some(id) => api::track(&mut state.session, id).await?,
+            None => None,
+        };
+
+        let track_info = match track {
+            Some(track) => Some(track.load_info(&mut state.session).await?),
+            None => None,
+        };
+
+        state.socket.send(ServerMessage::TrackChange { track: track_info }).await?;
+    }
+
+    state.socket.send(ServerMessage::Player { player }).await?;
+
+    Ok(())
 }

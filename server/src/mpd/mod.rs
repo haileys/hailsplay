@@ -45,7 +45,7 @@ pub struct Playlist {
     pub items: Vec<PlaylistItem>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PlaylistItem {
     pub file: String,
     pub pos: i64,
@@ -56,7 +56,40 @@ pub struct PlaylistItem {
 
 #[derive(Debug)]
 pub struct Changed {
-    pub subsystems: Vec<String>,
+    subsystems: Vec<String>,
+}
+
+impl Changed {
+    pub fn events(&self) -> impl Iterator<Item = MpdEvent> + '_ {
+        self.subsystems.iter()
+            .filter_map(|subsystem| {
+                match subsystem.parse() {
+                    Ok(event) => Some(event),
+                    Err(()) => {
+                        log::warn!("unknown subsystem: {subsystem}");
+                        None
+                    }
+                }
+            })
+    }
+}
+
+#[derive(Debug)]
+pub enum MpdEvent {
+    Playlist,
+    Player,
+}
+
+impl FromStr for MpdEvent {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<MpdEvent, ()> {
+        match s {
+            "player" => Ok(MpdEvent::Player),
+            "playlist" => Ok(MpdEvent::Playlist),
+            _ => Err(()),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -95,6 +128,11 @@ impl Mpd {
     pub async fn addid(&mut self, uri: &Url) -> Result<Id> {
         let resp = self.command("addid", &[&uri.to_string()]).await??;
         resp.attributes.get("Id")
+    }
+
+    pub async fn deleteid(&mut self, id: &Id) -> Result<()> {
+        self.command("deleteid", &[&id.0]).await??;
+        Ok(())
     }
 
     pub async fn playlistinfo(&mut self) -> Result<Playlist> {
