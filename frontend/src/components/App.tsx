@@ -65,7 +65,7 @@ export function App() {
 
             {renderModal(modal)}
         </>
-	);
+    );
 }
 
 function useErrorHandling(setModal: (_: ModalId) => void) {

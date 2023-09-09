@@ -25,8 +25,8 @@ export function Router(props: { children: ComponentChildren }) {
     const [ route, setRoute ] = useState<RouteId>(defaultRoute);
     const [ modal, setModal ] = useState<ModalId>(null);
 
-	return (
-		<RouteContext.Provider value={{ route, setRoute }}>
+    return (
+        <RouteContext.Provider value={{ route, setRoute }}>
             <ModalContext.Provider value={{ modal, setModal }}>
                 {props.children}
             </ModalContext.Provider>
