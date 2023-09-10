@@ -1,0 +1,19 @@
+#!/bin/bash -e
+source "$(dirname "$0")/_common.sh"
+
+[ -f hailsplay.db ] || {
+    error "hailsplay.db does not exist, can't generate schema"
+    exit 1
+}
+
+generate-schema() {
+    diesel print-schema --database-url=hailsplay.db > server/src/db/schema.rs
+}
+
+log "writing diesel schema to server/src/db/schema.rs"
+
+generate-schema || {
+    error "diesel print-schema failed"
+    exit 1
+}
+
