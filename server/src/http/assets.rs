@@ -1,7 +1,10 @@
+use std::time::Duration;
+
+use axum::TypedHeader;
 use axum::extract::{State, Path};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use headers::{HeaderMap, HeaderValue};
+use headers::{ContentType, CacheControl};
 use rusqlite::{Connection, OptionalExtension};
 use url::Url;
 
@@ -30,12 +33,17 @@ pub async fn file(
         return Ok(Err(StatusCode::NOT_FOUND));
     };
 
-    let content_type = HeaderValue::from_str(&asset.content_type)
-        .unwrap_or(HeaderValue::from_static("application/octet-stream"));
+    let content_type = ContentType::from(asset.content_type);
 
-    let mut headers = HeaderMap::new();
-    headers.insert("content-type", content_type);
-    headers.insert("cache-control", HeaderValue::from_static("public, max-age=315360000"));
+    let cache_control = CacheControl::new()
+        .with_public()
+        // .with_immutable()
+        .with_max_age(Duration::from_secs(315360000));
+
+    let headers = (
+        TypedHeader(content_type),
+        TypedHeader(cache_control),
+    );
 
     Ok(Ok((StatusCode::OK, headers, blob)))
 }

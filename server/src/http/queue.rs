@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use anyhow::Result;
 use axum::{Json, debug_handler};
 use axum::extract::{Path, State};
@@ -10,7 +8,7 @@ use reqwest::StatusCode;
 use crate::error::AppResult;
 use crate::mpd::{self, Mpd};
 use crate::api;
-use crate::{App, MediaRecord, ytdlp, MediaId};
+use crate::App;
 
 #[debug_handler]
 pub async fn index(app: State<App>) -> AppResult<Json<Queue>> {
@@ -32,25 +30,10 @@ pub async fn show(app: State<App>, Path(track_id): Path<TrackId>)
 
 #[axum::debug_handler]
 pub async fn add(app: State<App>, data: Json<AddParams>) -> AppResult<Json<AddResponse>> {
-    let id = MediaId(uuid::Uuid::new_v4());
+    let record = app.archive().add_url(&data.url).await?;
 
-    let dir = app.working_dir().create_dir(&id.to_string()).await?;
-    let dir = dir.into_shared();
-
-    let download = ytdlp::start_download(dir, &data.url).await?;
-    let metadata = download.metadata.clone();
-
-    {
-        let mut state = app.0.0.state.lock().unwrap();
-        state.media_by_url.insert(data.url.clone(), id);
-        state.media.insert(id, Arc::new(MediaRecord {
-            url: data.url.clone(),
-            download,
-        }));
-    }
-
-    let stream_url = app.0.0.config.http.external_url
-        .join(&format!("media/{id}/stream"))?;
+    let metadata = record.parse_metadata()?;
+    let stream_url = record.internal_stream_url(app.config());
 
     log::info!("Adding {}", metadata.title
         .unwrap_or_else(|| data.url.to_string()));

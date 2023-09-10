@@ -3,10 +3,11 @@ use std::task::{Context, Poll};
 use std::pin::Pin;
 use std::cmp;
 
+use axum::response::Response;
 use axum::{extract::{State, Path}, response::IntoResponse, TypedHeader};
 use axum::http::StatusCode;
 use derive_more::From;
-use headers::Range;
+use headers::{Range, ContentType};
 use pin_project::pin_project;
 use tokio::{fs::File, io::ReadBuf};
 use tokio::sync::watch::Receiver;
@@ -14,52 +15,52 @@ use tokio::io::AsyncRead;
 use tokio_stream::wrappers::WatchStream;
 use futures::{StreamExt, stream::Fuse, ready};
 
-use crate::{App, MediaId};
+use crate::{App, Config};
+use crate::api::archive::{MediaStreamId, RecordKind, MetadataParseError};
+use crate::ytdlp::Progress;
 use crate::error::AppError;
-use crate::ytdlp::{Progress, DownloadHandle};
 
-use axum_range::{Ranged, RangeNotSatisfiable, RangeBody, AsyncSeekStart};
+use axum_range::{Ranged, RangeNotSatisfiable, RangeBody, AsyncSeekStart, KnownSize};
 
 pub async fn stream(
     app: State<App>,
-    Path(media_id): Path<MediaId>,
+    Path(media_id): Path<MediaStreamId>,
     range: Option<TypedHeader<Range>>,
 ) -> Result<impl IntoResponse, MediaStreamError> {
-    let media = {
-        let state = app.0.0.state.lock().unwrap();
-        match state.media.get(&media_id) {
-            Some(media) => media.clone(),
-            None => {
-                return Err(MediaStreamError::NotFound);
-            }
-        }
+    let range = range.map(|TypedHeader(range)| range);
+
+    let media = match app.archive().load(media_id).await {
+        Ok(Some(media)) => media,
+        Ok(None) => { return Err(MediaStreamError::NotFound); }
+        Err(e) => { return Err(MediaStreamError::Database(e)); }
     };
 
-    log::info!("Serving stream title={:?} id={:?}", media.download.metadata.title, media_id);
+    let metadata = media.parse_metadata()
+        .map_err(MediaStreamError::ParseMetadata)?;
 
-    let range = range.map(|header| header.0);
+    log::info!("Serving stream title={:?} id={:?}", metadata.title, media_id);
 
-    let headers = [
-        ("content-type", content_type_for_ext(&media.download.metadata.ext)),
-    ];
+    let content_type = TypedHeader(ContentType::from(media.content_type()));
 
-    let stream = media_stream(&media.download, range).await?;
+    let response = ranged_response(&media, range, app.config()).await?;
 
-    Ok((headers, stream).into_response())
+    Ok((content_type, response).into_response())
 }
 
-fn content_type_for_ext(ext: &str) -> &'static str {
-    match ext {
-        "aac" => "audio/aac",
-        "flac" => "audio/x-flac",
-        "m4a" => "audio/mp4",
-        "mka" => "audio/x-matroska",
-        "mp3" => "audio/mpeg",
-        "ogg" => "audio/ogg",
-        "opus" => "audio/ogg",
-        "wav" => "audio/wav",
-        "webm" => "audio/webm",
-        _ => "application/octet-stream",
+async fn ranged_response(media: &RecordKind, range: Option<Range>, config: &Config) -> io::Result<Response> {
+    let path = media.disk_path(config);
+    let file = tokio::fs::File::open(path).await?;
+
+    match media {
+        RecordKind::Archive(_, _) => {
+            let body = KnownSize::file(file).await?;
+            Ok(Ranged::new(range, body).into_response())
+        }
+        RecordKind::Memory(record) => {
+            let progress = record.download.progress.clone();
+            let body = StreamingDownload::new(file, progress);
+            Ok(Ranged::new(range, body).into_response())
+        }
     }
 }
 
@@ -68,32 +69,20 @@ pub enum MediaStreamError {
     NotFound,
     RangeNotSatisfiable(RangeNotSatisfiable),
     Io(io::Error),
+    Database(rusqlite::Error),
+    ParseMetadata(MetadataParseError)
 }
 
 impl IntoResponse for MediaStreamError {
     fn into_response(self) -> axum::response::Response {
         match self {
             MediaStreamError::Io(e) => AppError::from(e).into_response(),
-            MediaStreamError::NotFound => {
-                (
-                    StatusCode::NOT_FOUND,
-                    "not found"
-                ).into_response()
-            }
-            MediaStreamError::RangeNotSatisfiable(response) => {
-                response.into_response()
-            }
+            MediaStreamError::Database(e) => AppError::from(e).into_response(),
+            MediaStreamError::ParseMetadata(e) => AppError::from(e).into_response(),
+            MediaStreamError::NotFound => StatusCode::NOT_FOUND.into_response(),
+            MediaStreamError::RangeNotSatisfiable(response) => response.into_response(),
         }
     }
-}
-
-async fn media_stream(handle: &DownloadHandle, range: Option<Range>)
-    -> Result<Ranged<StreamingDownload>, io::Error>
-{
-    let file = File::open(handle.file.path()).await?;
-    let progress = handle.progress.clone();
-    let body = StreamingDownload::new(file, progress);
-    Ok(Ranged::new(range, body))
 }
 
 #[pin_project]
