@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::process::Stdio;
 use std::task::Poll;
+
 use futures::{FutureExt, future};
 use regex::Regex;
 use lazy_static::lazy_static;
@@ -9,6 +10,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, BufReader, AsyncBufReadExt};
 use tokio::sync::{oneshot, watch};
 use url::Url;
 use serde::Deserialize;
+use thiserror::Error;
 
 use crate::fs::{SharedDir, SharedFile};
 
@@ -29,7 +31,17 @@ pub struct Metadata {
     pub video_ext: String,
 }
 
-pub async fn fetch_metadata(url: &Url) -> anyhow::Result<Metadata> {
+#[derive(Debug, Error)]
+pub enum FetchMetadataError {
+    #[error("spawning yt-dlp command: {0}")]
+    Spawn(std::io::Error),
+    #[error("command failed: stderr output: {0}")]
+    CommandError(String),
+    #[error("parsing metadata: {0}")]
+    ParseMetadata(serde_json::Error),
+}
+
+pub async fn fetch_metadata(url: &Url) -> Result<Metadata, FetchMetadataError> {
     const MAX_READ_SIZE: u64 = 512 * 1024; // 512 KiB
 
     let mut process = tokio::process::Command::new("yt-dlp")
@@ -38,7 +50,8 @@ pub async fn fetch_metadata(url: &Url) -> anyhow::Result<Metadata> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
-        .spawn()?;
+        .spawn()
+        .map_err(FetchMetadataError::Spawn)?;
 
     let stdout = process.stdout.take().unwrap();
     let stderr = process.stderr.take().unwrap();
@@ -55,21 +68,14 @@ pub async fn fetch_metadata(url: &Url) -> anyhow::Result<Metadata> {
     let (status, stdout, stderr) = result.await;
 
     match status {
-        Ok(status) => {
-            if !status.success() {
-                if let Some(code) = status.code() {
-                    anyhow::bail!("yt-dlp returned non-zero exit status: {code:?}\n\nstderr: {stderr}")
-                } else {
-                    anyhow::bail!("yt-dlp exited with failure status\n\nstderr: {stderr}")
-                }
-            }
-        }
-        Err(e) => {
-            anyhow::bail!("error invoking yt-dlp: {e:?}\n\nstderr: {stderr}")
+        Ok(status) if status.success() => {}
+        _ => {
+            return Err(FetchMetadataError::CommandError(stderr));
         }
     }
 
-    let metadata = serde_json::from_str::<Metadata>(&stdout)?;
+    let metadata = serde_json::from_str::<Metadata>(&stdout)
+        .map_err(FetchMetadataError::ParseMetadata)?;
 
     Ok(metadata)
 }
@@ -88,7 +94,7 @@ pub struct DownloadHandle {
     pub metadata: Metadata,
     pub metadata_file: SharedFile,
     pub progress: watch::Receiver<Progress>,
-    pub complete: oneshot::Receiver<Result<(), anyhow::Error>>,
+    pub complete: oneshot::Receiver<Result<(), DownloadError>>,
 }
 
 #[derive(Clone)]
@@ -103,7 +109,32 @@ impl Progress {
     }
 }
 
-pub async fn start_download(dir: SharedDir, url: &Url) -> anyhow::Result<DownloadHandle> {
+#[derive(Debug, Error)]
+pub enum DownloadError {
+    #[error("spawning yt-dlp command: {0}")]
+    Spawn(std::io::Error),
+    #[error("reading from yt-dlp: {0}")]
+    Read(std::io::Error),
+    #[error("reading from yt-dlp: {0}")]
+    YtDlp(&'static str),
+    #[error("command failed")]
+    CommandError,
+    #[error("reading metadata: {0}")]
+    ReadMetadata(std::io::Error),
+    #[error("parsing metadata: {0}")]
+    ParseMetadata(serde_json::Error),
+}
+
+impl DownloadError {
+    pub fn unexpected_eof() -> Self {
+        DownloadError::Read(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "yt-dlp terminated abruptly",
+        ))
+    }
+}
+
+pub async fn start_download(dir: SharedDir, url: &Url) -> Result<DownloadHandle, DownloadError> {
     let mut process = Command::new("yt-dlp")
         .arg("--extract-audio")
         .arg("--audio-quality=0") // best
@@ -117,7 +148,8 @@ pub async fn start_download(dir: SharedDir, url: &Url) -> anyhow::Result<Downloa
         .stdout(Stdio::piped())
         .current_dir(dir.path())
         .kill_on_drop(true)
-        .spawn()?;
+        .spawn()
+        .map_err(DownloadError::Spawn)?;
 
     let stdout = process.stdout.take().unwrap();
     let mut ytdlp = YtdlpReader {
@@ -133,7 +165,7 @@ pub async fn start_download(dir: SharedDir, url: &Url) -> anyhow::Result<Downloa
     loop {
         let line = match ytdlp.read_line().await? {
             Some(line) => line,
-            None => { anyhow::bail!("unexpected yt-dlp EOF"); }
+            None => { return Err(DownloadError::unexpected_eof()); }
         };
 
         match line {
@@ -162,19 +194,22 @@ pub async fn start_download(dir: SharedDir, url: &Url) -> anyhow::Result<Downloa
     }
 
     let Some(file) = file else {
-        anyhow::bail!("missing download filename in yt-dlp output");
+        return Err(DownloadError::YtDlp("missing download filename in yt-dlp output"));
     };
 
     let Some(metadata_file) = metadata else {
-        anyhow::bail!("missing metadata filename in yt-dlp output");
+        return Err(DownloadError::YtDlp("missing metadata filename in yt-dlp output"));
     };
 
     let Some(progress) = progress else {
-        anyhow::bail!("yt-dlp never started reporting progress");
+        return Err(DownloadError::YtDlp("yt-dlp never started reporting progress"));
     };
 
-    let metadata_json = tokio::fs::read_to_string(metadata_file.path()).await?;
-    let metadata = serde_json::from_str::<Metadata>(&metadata_json)?;
+    let metadata_json = tokio::fs::read_to_string(metadata_file.path()).await
+        .map_err(DownloadError::ReadMetadata)?;
+
+    let metadata = serde_json::from_str::<Metadata>(&metadata_json)
+        .map_err(DownloadError::ParseMetadata)?;
 
     let (progress_tx, progress_rx) = watch::channel(progress.clone());
     let (complete_tx, complete_rx) = oneshot::channel();
@@ -217,10 +252,10 @@ async fn run_download(
     mut ytdlp: YtdlpReader,
     progress_tx: watch::Sender<Progress>,
     total_bytes: u64,
-) -> anyhow::Result<()> {
+) -> Result<(), DownloadError> {
     loop {
         let Some(line) = ytdlp.read_line().await? else {
-            anyhow::bail!("unexpected yt-dlp EOF");
+            return Err(DownloadError::unexpected_eof());
         };
 
         match line {
@@ -249,12 +284,11 @@ async fn run_download(
         // pass
     }
 
-    let status = ytdlp.process.wait().await?;
+    let result = ytdlp.process.wait().await;
 
-    if status.success() {
-        Ok(())
-    } else {
-        anyhow::bail!("yt-dlp returned failure status");
+    match result {
+        Ok(status) if status.success() => Ok(()),
+        _ => Err(DownloadError::CommandError),
     }
 }
 
@@ -264,13 +298,16 @@ struct YtdlpReader {
 }
 
 impl YtdlpReader {
-    pub async fn read_line(&mut self) -> Result<Option<Line>, tokio::io::Error> {
+    pub async fn read_line(&mut self) -> Result<Option<Line>, DownloadError> {
         let mut line = String::new();
-        match self.reader.read_line(&mut line).await? {
-            0 => Ok(None),
-            _ => {
+        match self.reader.read_line(&mut line).await {
+            Ok(0) => Ok(None),
+            Ok(_) => {
                 let line = line.trim();
                 Ok(Some(parse_line(line)))
+            }
+            Err(e) => {
+                return Err(DownloadError::Read(e));
             }
         }
     }

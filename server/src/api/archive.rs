@@ -22,7 +22,7 @@ pub enum AddUrlError {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
     #[error("yt-dlp error: {0}")]
-    YtDlp(anyhow::Error),
+    YtDlp(ytdlp::DownloadError),
 }
 
 impl Archive {
