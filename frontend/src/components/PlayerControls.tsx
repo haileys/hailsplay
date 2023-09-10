@@ -50,7 +50,14 @@ export default function PlayerControls(props: { onChangeTrack: () => void }) {
     let onPlayAction = async (action: PlayAction) => {
         switch (action) {
             case "play":
-                setOptimisticState("loading");
+                if (player?.position?.t === "elapsed") {
+                    // if this is a fixed-duration track and we are playing
+                    // from a paused state then assume we can resume playback
+                    // instantly and set the state to playing directly
+                    setOptimisticState("playing");
+                } else {
+                    setOptimisticState("loading");
+                }
                 await post("/api/player/play").response();
                 break;
             case "pause":
