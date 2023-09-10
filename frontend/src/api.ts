@@ -71,8 +71,9 @@ class RequestBuilder {
 
     async response(): Promise<any> {
         let url = this._url;
-        if (this._queryParams.size > 0) {
-            url += "?" + this._queryParams.toString();
+        let query = this._queryParams.toString();
+        if (query !== "") {
+            url += "?" + query;
         }
 
         let response = await catchAbortErrors(fetch(url, this._request));
