@@ -1,7 +1,11 @@
 use std::collections::BTreeSet;
 
-use rusqlite::Connection;
+use diesel::{Connection, connection::SimpleConnection};
+use diesel::prelude::*;
 use thiserror::Error;
+
+use crate::db;
+use crate::db::schema::schema_migrations;
 
 #[derive(Debug, Error)]
 pub enum MigrationError {
@@ -9,48 +13,56 @@ pub enum MigrationError {
     UnknownMigrationsInDatabase(String),
 
     #[error("failed to apply {0}: {1}")]
-    FailedToApplyMigration(String, rusqlite::Error),
+    FailedToApplyMigration(String, diesel::result::Error),
 
     #[error("database error: {0}")]
-    Database(#[from] rusqlite::Error),
+    Database(#[from] diesel::result::Error),
 }
 
-pub fn run(conn: &mut Connection) -> Result<(), MigrationError> {
-    let txn = conn.transaction()?;
+pub fn run(conn: &mut db::Connection) -> Result<(), MigrationError> {
+    conn.transaction(|conn| {
+        conn.batch_execute(r"CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY);")?;
 
-    txn.execute_batch("CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY);")?;
+        let mut database_versions = schema_migrations::table
+            .select(schema_migrations::version)
+            .load::<Option<String>>(conn)?
+            .into_iter()
+            .filter_map(|ver| ver)
+            .collect::<BTreeSet<_>>();
 
-    let mut database_versions = txn
-        .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")?
-        .query_map([], |row| row.get(0))?
-        .collect::<Result<BTreeSet<String>, _>>()?;
+        // run all migrations in transaction
+        for (name, sql) in MIGRATIONS {
+            let (version, _description) = name.split_once("_")
+                .expect("migration name contains no _");
 
-    // run all migrations in transaction
-    for (name, sql) in MIGRATIONS {
-        let (version, _description) = name.split_once("_")
-            .expect("migration name contains no _");
+            if database_versions.remove(version) {
+                // migration already in database
+                continue;
+            }
 
-        if database_versions.remove(version) {
-            // migration already in database
-            continue;
+            conn.batch_execute(sql).map_err(|err|
+                MigrationError::FailedToApplyMigration(name.to_string(), err))?;
+
+            diesel::insert_into(schema_migrations::table)
+                .values(&Version { version })
+                .execute(conn)?;
         }
 
-        txn.execute_batch(sql).map_err(|err|
-            MigrationError::FailedToApplyMigration(name.to_string(), err))?;
+        // if database_versions is not empty by the end, there are unknown
+        // migrations in the database, fail and rollback
+        if !database_versions.is_empty() {
+            let versions = database_versions.into_iter().collect::<Vec<_>>();
+            return Err(MigrationError::UnknownMigrationsInDatabase(versions.join(", ")))
+        }
 
-        txn.execute("INSERT INTO schema_migrations (version) VALUES (?1)", [version])?;
-    }
+        Ok(())
+    })
+}
 
-    // if database_versions is not empty by the end, there are unknown
-    // migrations in the database, fail and rollback
-    if !database_versions.is_empty() {
-        let versions = database_versions.into_iter().collect::<Vec<_>>();
-        return Err(MigrationError::UnknownMigrationsInDatabase(versions.join(", ")))
-    }
-
-    // commit transaction, we are done!
-    txn.commit()?;
-    Ok(())
+#[derive(Insertable)]
+#[diesel(table_name = schema_migrations)]
+struct Version<'a> {
+    version: &'a str,
 }
 
 macro_rules! migration {
