@@ -1,19 +1,24 @@
-use std::{io::{self, SeekFrom}, ops::Bound, cmp};
+use std::io;
+use std::task::{Context, Poll};
+use std::pin::Pin;
+use std::cmp;
 
-use axum::{extract::{State, Path}, response::IntoResponse, body::StreamBody, TypedHeader};
+use axum::{extract::{State, Path}, response::IntoResponse, TypedHeader};
 use axum::http::StatusCode;
-use bytes::{Bytes, BytesMut};
-use headers::{ContentLength, AcceptRanges, Range, ContentRange};
-use tokio::{fs::File, sync::{mpsc, watch}};
-use tokio::io::{AsyncSeekExt, AsyncReadExt};
-use tokio_stream::wrappers::ReceiverStream;
-use futures::FutureExt;
+use derive_more::From;
+use headers::Range;
+use pin_project::pin_project;
+use tokio::{fs::File, io::ReadBuf};
+use tokio::sync::watch::Receiver;
+use tokio::io::AsyncRead;
+use tokio_stream::wrappers::WatchStream;
+use futures::{StreamExt, stream::Fuse, ready};
 
-use crate::{ytdlp::{Progress, DownloadHandle}, MediaId};
+use crate::{App, MediaId};
 use crate::error::AppError;
-use crate::App;
+use crate::ytdlp::{Progress, DownloadHandle};
 
-const READ_BUFFER_SIZE: usize = 64 * 1024;
+use axum_range::{Ranged, RangeNotSatisfiable, RangeBody, AsyncSeekStart};
 
 pub async fn stream(
     app: State<App>,
@@ -33,17 +38,14 @@ pub async fn stream(
     log::info!("Serving stream title={:?} id={:?}", media.download.metadata.title, media_id);
 
     let range = range.map(|header| header.0);
+
+    let headers = [
+        ("content-type", content_type_for_ext(&media.download.metadata.ext)),
+    ];
+
     let stream = media_stream(&media.download, range).await?;
 
-    let response = (
-        StatusCode::OK,
-        [("content-type", content_type_for_ext(&media.download.metadata.ext)),],
-        stream.content_range.map(TypedHeader),
-        TypedHeader(stream.content_length),
-        TypedHeader(AcceptRanges::bytes()),
-        StreamBody::new(stream.stream),
-    ).into_response();
-    Ok(response)
+    Ok((headers, stream).into_response())
 }
 
 fn content_type_for_ext(ext: &str) -> &'static str {
@@ -61,15 +63,10 @@ fn content_type_for_ext(ext: &str) -> &'static str {
     }
 }
 
-pub struct MediaStream {
-    pub content_range: Option<ContentRange>,
-    pub content_length: ContentLength,
-    pub stream: ReceiverStream<io::Result<Bytes>>,
-}
-
+#[derive(From)]
 pub enum MediaStreamError {
     NotFound,
-    RangeNotSatisfiable(ContentRange),
+    RangeNotSatisfiable(RangeNotSatisfiable),
     Io(io::Error),
 }
 
@@ -83,137 +80,149 @@ impl IntoResponse for MediaStreamError {
                     "not found"
                 ).into_response()
             }
-            MediaStreamError::RangeNotSatisfiable(content_range) => {
-                (
-                    StatusCode::RANGE_NOT_SATISFIABLE,
-                    TypedHeader(content_range),
-                    ()
-                ).into_response()
+            MediaStreamError::RangeNotSatisfiable(response) => {
+                response.into_response()
             }
         }
     }
 }
 
-pub async fn media_stream(handle: &DownloadHandle, range: Option<Range>)
-    -> Result<MediaStream, MediaStreamError>
+async fn media_stream(handle: &DownloadHandle, range: Option<Range>)
+    -> Result<Ranged<StreamingDownload>, io::Error>
 {
-    let file = File::open(handle.file.path()).await
-        .map_err(MediaStreamError::Io)?;
-
+    let file = File::open(handle.file.path()).await?;
     let progress = handle.progress.clone();
-    let total_bytes = progress.borrow().total_bytes;
+    let body = StreamingDownload::new(file, progress);
+    Ok(Ranged::new(range, body))
+}
 
-    // we don't support multiple byte ranges, only none or one
-    let range = range.and_then(|header| header.iter().nth(0));
+#[pin_project]
+struct StreamingDownload {
+    #[pin]
+    file: File,
+    seek: Seek,
+    progress: PollProgress,
+}
 
-    // see if we need to seek to begin at all
-    let seek_start = match range {
-        Some((Bound::Included(seek_start), _)) => seek_start,
-        _ => 0,
-    };
-
-    let seek_end_excl = match range {
-        // HTTP byte ranges are inclusive, so we translate to exclusive by adding 1:
-        Some((_, Bound::Included(end))) => end + 1,
-        _ => total_bytes,
-    };
-
-    // if seek start is out of range error straight away
-    if seek_start > total_bytes {
-        let content_range = ContentRange::unsatisfied_bytes(total_bytes);
-        return Err(MediaStreamError::RangeNotSatisfiable(content_range));
+impl StreamingDownload {
+    pub fn new(file: File, progress: Receiver<Progress>) -> Self {
+        let progress = PollProgress::new(progress);
+        let seek = Seek::At(0);
+        StreamingDownload { file, seek, progress }
     }
 
-    let seek = SeekInfo {
-        start: seek_start,
-        end: seek_end_excl,
-    };
-
-    let (tx, rx) = mpsc::channel(1);
-
-    tokio::spawn(run_stream(file, seek, tx, progress));
-
-    let content_range = range.map(|_| {
-        ContentRange::bytes(seek_start..seek_end_excl, total_bytes).unwrap()
-    });
-
-    let stream = MediaStream {
-        content_range,
-        content_length: ContentLength(total_bytes),
-        stream: tokio_stream::wrappers::ReceiverStream::new(rx),
-    };
-
-    Ok(stream)
+    fn total_bytes(&self) -> u64 {
+        self.progress.current.total_bytes
+    }
 }
 
-struct SeekInfo {
-    pub start: u64,
-    pub end: u64,
+enum Seek {
+    At(u64),
+    SeekTo(u64),
+    Seeking(u64),
 }
 
-async fn run_stream(
-    mut file: File,
-    seek: SeekInfo,
-    tx: mpsc::Sender<io::Result<Bytes>>,
-    mut progress: watch::Receiver<Progress>,
-) {
-    log::debug!("run_stream start, waiting for stream catch up: seek.start = {}", seek.start);
+impl RangeBody for StreamingDownload {
+    fn byte_size(&self) -> u64 {
+        self.total_bytes()
+    }
+}
 
-    // wait for stream to catch up with where we want to seek to
-    let _ = progress.wait_for(|p| p.downloaded_bytes >= seek.start).await;
+impl AsyncSeekStart for StreamingDownload {
+    fn start_seek(self: Pin<&mut Self>, position: u64) -> io::Result<()> {
+        let seek_to = cmp::min(self.total_bytes(), position);
+        let this = self.project();
 
-    log::debug!("stream caught up, seeking");
-
-    // seek the file
-    match file.seek(SeekFrom::Start(seek.start)).await {
-        Ok(_) => {}
-        Err(e) => {
-            log::error!("io error seeking in media_stream: {e:?}");
-            let _ = tx.send(Err(e));
-            return;
+        if let Seek::At(_) = this.seek {
+            *this.seek = Seek::SeekTo(seek_to);
+            Ok(())
+        } else {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "start seek while already seeking",
+            ));
         }
     }
 
-    log::debug!("seeked!");
+    fn poll_complete(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let mut this = self.project();
 
-    let mut pos = seek.start;
+        if let Seek::At(_) = this.seek {
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::Other,
+                "poll complete while not seeking",
+            )));
+        }
 
-    loop {
-        let remaining = seek.end - pos;
-        let cap = cmp::min(READ_BUFFER_SIZE, remaining as usize);
-        let mut buf = BytesMut::with_capacity(cap);
+        if let Seek::SeekTo(pos) = *this.seek {
+            ready!(this.progress.poll_ready(cx, pos));
+            AsyncSeekStart::start_seek(this.file.as_mut(), pos)?;
+            *this.seek = Seek::Seeking(pos);
+        }
 
-        let target = pos + READ_BUFFER_SIZE as u64;
+        if let Seek::Seeking(pos) = *this.seek {
+            ready!(AsyncSeekStart::poll_complete(this.file.as_mut(), cx))?;
+            *this.seek = Seek::At(pos);
+            return Poll::Ready(Ok(()));
+        }
 
-        let read_fut = progress
-            // wait for a full buffer to be ready before reading
-            .wait_for(|p| p.complete() || p.downloaded_bytes >= target)
-            .then(|_| file.read_buf(&mut buf));
-        futures::pin_mut!(read_fut);
+        unreachable!();
+    }
+}
 
-        let closed_fut = tx.closed().map(|()| {
-            // fake an EOF if rx hung up on us
-            Ok(0)
-        });
-        futures::pin_mut!(closed_fut);
+impl AsyncRead for StreamingDownload {
+    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>)
+        -> Poll<io::Result<()>>
+    {
+        let mut this = self.project();
 
-        let result = futures::future::select(read_fut, closed_fut)
-            .await
-            .factor_first()
-            .0;
+        let Seek::At(pos) = *this.seek else {
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::Other,
+                "read while seeking",
+            )));
+        };
 
-        match result {
-            Ok(0) => { break; }
-            Ok(n) => {
-                // no need to check err here, we automatically get cancelled
-                // on rx hangup
-                let _: Result<_, _> = tx.send(Ok(buf.freeze())).await;
-                pos += n as u64;
+        ready!(this.progress.poll_ready(cx, pos));
+
+        let filled_before_read = buf.filled().len();
+        let () = ready!(AsyncRead::poll_read(this.file.as_mut(), cx, buf))?;
+        let filled_after_read = buf.filled().len();
+
+        let bytes_read = u64::try_from(filled_after_read - filled_before_read)
+            .expect("conversion from usize to u64 to always succeed");
+
+        *this.seek = Seek::At(pos + bytes_read);
+
+        Poll::Ready(Ok(()))
+    }
+}
+
+struct PollProgress {
+    current: Progress,
+    watch: Fuse<WatchStream<Progress>>,
+}
+
+impl PollProgress {
+    pub fn new(watch: Receiver<Progress>) -> Self {
+        let current = watch.borrow().clone();
+        let watch = WatchStream::new(watch).fuse();
+        PollProgress { current, watch }
+    }
+
+    pub fn poll_ready(&mut self, cx: &mut Context<'_>, position: u64) -> Poll<()> {
+        loop {
+            if self.current.complete() {
+                return Poll::Ready(());
             }
-            Err(e) => {
-                log::error!("io error in media_stream: {e:?}");
-                let _ = tx.send(Err(e));
-                break;
+
+            if position < self.current.downloaded_bytes {
+                return Poll::Ready(());
+            }
+
+            match ready!(self.watch.poll_next_unpin(cx)) {
+                Some(progress) => { self.current = progress; }
+                None => { return Poll::Ready(()); }
             }
         }
     }
