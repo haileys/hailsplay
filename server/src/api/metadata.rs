@@ -5,7 +5,7 @@ use url::Url;
 
 use hailsplay_protocol::TrackInfo;
 
-use crate::MediaId;
+use crate::api::archive::MediaStreamId;
 use crate::db::radio::{self, Station};
 use crate::http::assets;
 use crate::mpd::PlaylistItem;
@@ -13,14 +13,14 @@ use crate::api::Session;
 
 pub async fn track_info(session: &mut Session, item: &TrackKind) -> anyhow::Result<TrackInfo> {
     match item {
-        TrackKind::Media(id) => media_track_info(session, *id),
+        TrackKind::Media(id) => Ok(media_track_info(session, *id).await?),
         TrackKind::Radio(item) => Ok(radio_track_info(session, item).await?),
         TrackKind::Unknown(item) => Ok(fallback_item(item)),
     }
 }
 
 pub async fn identify(session: &mut Session, item: &PlaylistItem) -> anyhow::Result<TrackKind> {
-    if let Some(id) = media_stream_item(session, &item) {
+    if let Some(id) = media_stream_item(session, &item).await? {
         return Ok(TrackKind::Media(id));
     }
 
@@ -33,7 +33,7 @@ pub async fn identify(session: &mut Session, item: &PlaylistItem) -> anyhow::Res
 
 pub enum TrackKind {
     Radio(RadioItem),
-    Media(MediaId),
+    Media(MediaStreamId),
     Unknown(PlaylistItem),
 }
 
@@ -85,22 +85,22 @@ async fn radio_item(session: &Session, item: &PlaylistItem) -> Result<Option<Rad
     }).await
 }
 
-fn media_track_info(session: &Session, id: MediaId) -> anyhow::Result<TrackInfo> {
-    let state = session.app().lock_state();
-    let Some(media) = state.media.get(&id) else {
+async fn media_track_info(session: &Session, id: MediaStreamId) -> anyhow::Result<TrackInfo> {
+    let media_record = session.app()
+        .archive()
+        .load(id)
+        .await?;
+
+    let Some(media_record) = media_record else {
         anyhow::bail!("can't find media id {id}");
     };
 
-    let metadata = media.metadata();
+    let metadata = media_record.parse_metadata()?;
 
     let image_url = metadata.thumbnail.clone();
 
     let primary_label = metadata.title.clone()
-        .or_else(|| {
-            media.download.file.path().file_name()
-                .map(|filename| filename.to_string_lossy().to_string())
-        })
-        .unwrap_or_default();
+        .unwrap_or_else(|| media_record.filename());
 
     let secondary_label = metadata.uploader.clone();
 
@@ -111,24 +111,26 @@ fn media_track_info(session: &Session, id: MediaId) -> anyhow::Result<TrackInfo>
     })
 }
 
-fn media_stream_item(session: &Session, item: &PlaylistItem) -> Option<MediaId> {
+async fn media_stream_item(session: &Session, item: &PlaylistItem)
+    -> Result<Option<MediaStreamId>, rusqlite::Error>
+{
     lazy_static::lazy_static! {
         static ref URL_RE: Regex =
             Regex::new("^/media/(.*?)/stream$").unwrap();
     }
 
-    let url = Url::parse(&item.file).ok()?;
+    let parsed = Url::parse(&item.file).ok();
 
-    if let Some(captures) = URL_RE.captures(url.path()) {
-        let id = captures.get(1).unwrap().as_str();
-        let id = MediaId::from_str(id).ok()?;
-        let state = session.app().lock_state();
+    let id = parsed.as_ref()
+        .and_then(|url| URL_RE.captures(url.path()))
+        .and_then(|captures| captures.get(1))
+        .and_then(|capture| MediaStreamId::from_str(capture.as_str()).ok());
 
-        // ensure it exists:
-        state.media.get(&id)?;
+    let Some(id) = id else {
+        return Ok(None);
+    };
 
-        Some(id)
-    } else {
-        None
-    }
+    // validate parsed id by trying to load it and seeing if it exists:
+    let record = session.app().archive().load(id).await?;
+    Ok(record.map(|_| id))
 }

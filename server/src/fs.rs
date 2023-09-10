@@ -2,6 +2,7 @@ use std::path::Path;
 use std::{path::PathBuf, sync::Arc};
 use std::io;
 
+#[derive(Debug, Clone)]
 pub struct WorkingDirectory {
     path: PathBuf,
 }
@@ -22,6 +23,7 @@ impl WorkingDirectory {
     }
 }
 
+#[derive(Debug)]
 pub struct OwnedDir {
     path: PathBuf,
 }
@@ -41,7 +43,7 @@ impl OwnedDir {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct SharedDir(Arc<OwnedDir>);
 
 impl SharedDir {
@@ -57,6 +59,7 @@ impl SharedDir {
     }
 }
 
+#[derive(Debug)]
 pub struct OwnedFile {
     path: PathBuf,
     _dir: Option<SharedDir>,
@@ -72,7 +75,7 @@ impl OwnedFile {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct SharedFile(Arc<OwnedFile>);
 
 impl SharedFile {

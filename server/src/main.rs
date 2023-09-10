@@ -6,21 +6,18 @@ mod frontend;
 mod fs;
 mod http;
 mod maint;
+mod mime;
 mod mpd;
 mod tools;
 mod ytdlp;
 
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::process::ExitCode;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 
-use derive_more::{Display, FromStr};
+use api::archive::Archive;
 use log::LevelFilter;
-use serde::Deserialize;
 use structopt::StructOpt;
-use url::Url;
-use uuid::Uuid;
 
 use crate::config::Config;
 use crate::fs::WorkingDirectory;
@@ -81,7 +78,7 @@ async fn run(config: Config) -> anyhow::Result<()> {
 }
 
 #[derive(Clone)]
-pub struct App(pub Arc<AppCtx>);
+pub struct App(pub Arc<AppShared>);
 
 impl App {
     pub async fn session(&self) -> anyhow::Result<api::Session> {
@@ -93,8 +90,7 @@ impl App {
     }
 
     pub async fn use_database<R>(&self, f: impl FnOnce(&mut rusqlite::Connection) -> R) -> R {
-        let mut conn = self.0.database.get().await;
-        tokio::task::block_in_place(|| f(&mut conn))
+        self.0.database.with(f).await
     }
 
     pub fn config(&self) -> &Config {
@@ -105,45 +101,26 @@ impl App {
         &self.0.working
     }
 
-    pub fn lock_state(&self) -> MutexGuard<AppState> {
-        self.0.state.lock().unwrap()
+    pub fn archive(&self) -> Archive {
+        self.0.archive.clone()
     }
 }
 
-pub struct AppCtx {
+pub struct AppShared {
     pub config: Config,
     pub working: WorkingDirectory,
-    pub state: Mutex<AppState>,
+    pub archive: Archive,
     pub database: db::Pool,
-}
-
-#[derive(Default)]
-pub struct AppState {
-    pub media_by_url: HashMap<Url, MediaId>,
-    pub media: HashMap<MediaId, Arc<MediaRecord>>,
-}
-
-#[derive(Debug, Display, Deserialize, FromStr, Clone, Copy, Hash, PartialEq, Eq)]
-#[display(fmt = "{}", "self.0")]
-pub struct MediaId(pub Uuid);
-
-pub struct MediaRecord {
-    pub url: Url,
-    pub download: ytdlp::DownloadHandle,
-}
-
-impl MediaRecord {
-    pub fn metadata(&self) -> &ytdlp::Metadata {
-        &self.download.metadata
-    }
 }
 
 impl App {
     pub fn new(config: Config, working: WorkingDirectory, database: db::Pool) -> Self {
-        App(Arc::new(AppCtx {
+        let archive = Archive::new(database.clone(), working.clone());
+
+        App(Arc::new(AppShared {
             config,
             working,
-            state: Default::default(),
+            archive,
             database,
         }))
     }

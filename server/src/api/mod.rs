@@ -1,7 +1,8 @@
-pub mod session;
-pub use session::Session;
-
+pub mod archive;
 pub mod metadata;
+pub mod session;
+
+pub use session::Session;
 
 use hailsplay_protocol::{TrackId, PlayPosition, PlayState, PlayerStatus, Queue, QueueItem};
 use crate::mpd::{self, Seconds, Status};

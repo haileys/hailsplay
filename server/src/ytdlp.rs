@@ -179,7 +179,7 @@ pub async fn start_download(dir: SharedDir, url: &Url) -> anyhow::Result<Downloa
     let (progress_tx, progress_rx) = watch::channel(progress.clone());
     let (complete_tx, complete_rx) = oneshot::channel();
 
-    let handle = DownloadHandle { 
+    let handle = DownloadHandle {
         file: file.into_shared(),
         thumbnail: thumbnail.map(|th| th.into_shared()),
         metadata: metadata,
@@ -258,7 +258,7 @@ async fn run_download(
     }
 }
 
-struct YtdlpReader { 
+struct YtdlpReader {
     process: Child,
     reader: BufReader<ChildStdout>,
 }
@@ -298,7 +298,7 @@ fn parse_line(line: &str) -> Line {
 
         static ref PROGRESS: Regex = Regex::new(
             r"^hailsplay-progress:D=(\d+):T=(\d+)$").unwrap();
-        
+
         static ref COMPLETE: Regex = Regex::new(
             r"^\[download\] 100%").unwrap();
     }

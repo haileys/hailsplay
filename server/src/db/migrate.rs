@@ -59,4 +59,5 @@ macro_rules! migration {
 
 static MIGRATIONS: &[(&str, &str)] = &[
     migration!("000_create_schema"),
+    migration!("001_create_archived_media"),
 ];
