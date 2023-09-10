@@ -104,6 +104,10 @@ impl App {
     pub fn archive(&self) -> Archive {
         self.0.archive.clone()
     }
+
+    pub fn http(&self) -> reqwest::Client {
+        self.0.http.clone()
+    }
 }
 
 pub struct AppShared {
@@ -111,17 +115,20 @@ pub struct AppShared {
     pub working: WorkingDirectory,
     pub archive: Archive,
     pub database: db::Pool,
+    pub http: reqwest::Client,
 }
 
 impl App {
     pub fn new(config: Config, working: WorkingDirectory, database: db::Pool) -> Self {
-        let archive = Archive::new(database.clone(), working.clone());
+        let http = reqwest::Client::new();
+        let archive = Archive::new(database.clone(), working.clone(), http.clone());
 
         App(Arc::new(AppShared {
             config,
             working,
             archive,
             database,
+            http,
         }))
     }
 }

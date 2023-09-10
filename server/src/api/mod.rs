@@ -1,4 +1,5 @@
 pub mod archive;
+pub mod asset;
 pub mod metadata;
 pub mod session;
 

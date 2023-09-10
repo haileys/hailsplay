@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::{Arc, Mutex}, path::{PathBuf, Path}};
 
+use chrono::Utc;
 use derive_more::{Display, FromStr};
 use mime::Mime;
 use rusqlite::OptionalExtension;
@@ -8,9 +9,12 @@ use url::Url;
 use uuid::Uuid;
 use thiserror::Error;
 
-use crate::{db::{self, archive::{ArchiveRecord, MetadataParseError}}, ytdlp::Metadata, config::Config};
+use crate::api::asset;
+use crate::config::Config;
+use crate::db::Pool;
+use crate::db::archive::{self, ArchiveRecord, ArchiveRecordId};
 use crate::fs::WorkingDirectory;
-use crate::ytdlp;
+use crate::ytdlp::{self, Metadata};
 
 #[derive(Clone)]
 pub struct Archive {
@@ -26,10 +30,11 @@ pub enum AddUrlError {
 }
 
 impl Archive {
-    pub fn new(database: db::Pool, working: WorkingDirectory) -> Archive {
+    pub fn new(database: Pool, working: WorkingDirectory, http: reqwest::Client) -> Archive {
         let shared = Shared {
             database,
             working,
+            http,
             locked: Mutex::default(),
         };
 
@@ -38,13 +43,13 @@ impl Archive {
 
     pub async fn load(&self, id: MediaStreamId) -> Result<Option<RecordKind>, rusqlite::Error> {
         let record = self.shared.database.with(|conn| {
-            db::archive::load_by_stream_uuid(conn, &id)
+            archive::load_by_stream_uuid(conn, &id)
                 .optional()
         }).await?;
 
         // database records always take precedence over in-process state
-        if let Some(record) = record {
-            return Ok(Some(RecordKind::Archive(record)));
+        if let Some((id, record)) = record {
+            return Ok(Some(RecordKind::Archive(id, record)));
         }
 
         // check locked state next
@@ -71,6 +76,13 @@ impl Archive {
             download: Arc::new(download),
         });
 
+        tokio::task::spawn(
+            wait_for_download_complete(
+                self.shared.clone(),
+                record.clone(),
+            )
+        );
+
         let mut locked = self.shared.locked.lock().unwrap();
         locked.media_by_url.insert(url.clone(), id);
         locked.media.insert(id, record.clone());
@@ -79,15 +91,89 @@ impl Archive {
     }
 }
 
+async fn wait_for_download_complete(shared: Arc<Shared>, record: Arc<MemoryRecord>) {
+    let complete = record.download.complete.clone();
+
+    match complete.await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            log::error!("media download failed: {e}");
+            return;
+        }
+        Err(_) => {
+            log::error!("media download task abruptly terminated");
+            return;
+        }
+    }
+
+    let metadata = record.metadata();
+
+    log::info!("finished downloading, now processing: {}", record.url);
+
+    let canonical_url = metadata.webpage_url.as_ref()
+        .unwrap_or(&record.url)
+        .clone();
+
+    let thumbnail = match &metadata.thumbnail {
+        Some(thumbnail_url) => {
+            log::info!("downloading thumbnail: {thumbnail_url}");
+            match asset::download(shared.http.clone(), &thumbnail_url).await {
+                Ok(asset) => Some(asset),
+                Err(e) => {
+                    log::warn!("failed to download thumbnail: {thumbnail_url}: {e:?}");
+                    None
+                }
+            }
+        }
+        None => None,
+    };
+
+    let metadata_value = match serde_json::to_value(metadata) {
+        Ok(value) => value,
+        Err(e) => {
+            log::error!("failed to serialize metadata for database insert: {e:?}");
+            return;
+        }
+    };
+
+    let result = shared.database.with(|conn| {
+        let thumbnail_id = thumbnail
+            .map(|thumbnail| thumbnail.insert(conn))
+            .transpose()?;
+
+        let record = ArchiveRecord {
+            filename: record.download.filename(),
+            canonical_url,
+            archived_at: Utc::now(),
+            stream_uuid: record.id,
+            thumbnail_id,
+            metadata: metadata_value,
+        };
+
+        archive::insert_media_record(conn, record)
+    }).await;
+
+    if let Err(e) = result {
+        log::error!("failed to insert archived media record: {e:?}");
+        return;
+    }
+
+    let mut locked = shared.locked.lock().unwrap();
+    locked.media.remove(&record.id);
+    locked.media_by_url.remove(&record.url);
+
+    log::info!("successfully downloaded and archived url: {}", record.url);
+}
+
 pub enum RecordKind {
     Memory(Arc<MemoryRecord>),
-    Archive(ArchiveRecord),
+    Archive(ArchiveRecordId, ArchiveRecord),
 }
 
 impl RecordKind {
     pub fn content_type(&self) -> Mime {
         let path = match self {
-            RecordKind::Archive(record) => Path::new(&record.filename),
+            RecordKind::Archive(_, record) => Path::new(&record.filename),
             RecordKind::Memory(record) => record.download.file.path(),
         };
 
@@ -96,7 +182,7 @@ impl RecordKind {
 
     pub fn disk_path(&self, config: &Config) -> PathBuf {
         match self {
-            RecordKind::Archive(record) => {
+            RecordKind::Archive(_, record) => {
                 config.storage.archive.join(&record.filename)
             }
             RecordKind::Memory(record) => {
@@ -107,21 +193,14 @@ impl RecordKind {
 
     pub fn filename(&self) -> String {
         match self {
-            RecordKind::Archive(record) => {
-                record.filename.clone()
-            }
-            RecordKind::Memory(record) => {
-                let filename = record.download.file.path().file_name()
-                    .expect("download always has a file name");
-
-                filename.to_string_lossy().to_string()
-            }
+            RecordKind::Archive(_, record) => record.filename.clone(),
+            RecordKind::Memory(record) => record.download.filename(),
         }
     }
 
     pub fn stream_id(&self) -> MediaStreamId {
         match self {
-            RecordKind::Archive(record) => record.stream_uuid,
+            RecordKind::Archive(_, record) => record.stream_uuid,
             RecordKind::Memory(record) => record.id,
         }
     }
@@ -133,8 +212,9 @@ impl RecordKind {
 
     pub fn parse_metadata(&self) -> Result<Metadata, MetadataParseError> {
         match self {
-            RecordKind::Archive(record) => {
+            RecordKind::Archive(id, record) => {
                 record.parse_metadata()
+                    .map_err(|error| MetadataParseError { id: *id, error })
             }
             RecordKind::Memory(record) => {
                 Ok(record.metadata().clone())
@@ -143,13 +223,22 @@ impl RecordKind {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+#[error("failed to parse ytdlp metadata json for archived_media id={id}: {error}")]
+pub struct MetadataParseError {
+    pub id: ArchiveRecordId,
+    #[source]
+    pub error: serde_json::Error,
+}
+
 #[derive(Debug, Display, Deserialize, FromStr, Clone, Copy, Hash, PartialEq, Eq)]
 #[display(fmt = "{}", "self.0")]
 pub struct MediaStreamId(pub Uuid);
 
 struct Shared {
-    database: db::Pool,
+    database: Pool,
     working: WorkingDirectory,
+    http: reqwest::Client,
     locked: Mutex<Locked>,
 }
 

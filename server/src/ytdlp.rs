@@ -1,7 +1,11 @@
+use std::io;
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::Arc;
 use std::task::Poll;
 
+use derive_more::From;
+use futures::future::Shared;
 use futures::{FutureExt, future};
 use regex::Regex;
 use lazy_static::lazy_static;
@@ -9,12 +13,12 @@ use tokio::process::{Command, Child, ChildStdout};
 use tokio::io::{AsyncRead, AsyncReadExt, BufReader, AsyncBufReadExt};
 use tokio::sync::{oneshot, watch};
 use url::Url;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::fs::{SharedDir, SharedFile};
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Metadata {
     pub title: Option<String>,
     #[serde(rename = "fulltitle")]
@@ -94,7 +98,16 @@ pub struct DownloadHandle {
     pub metadata: Metadata,
     pub metadata_file: SharedFile,
     pub progress: watch::Receiver<Progress>,
-    pub complete: oneshot::Receiver<Result<(), DownloadError>>,
+    pub complete: Shared<oneshot::Receiver<Result<(), DownloadError>>>,
+}
+
+impl DownloadHandle {
+    pub fn filename(&self) -> String {
+        let filename = self.file.path().file_name()
+            .expect("download path always has filename");
+
+        filename.to_string_lossy().to_string()
+    }
 }
 
 #[derive(Clone)]
@@ -109,30 +122,56 @@ impl Progress {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum DownloadError {
     #[error("spawning yt-dlp command: {0}")]
-    Spawn(std::io::Error),
+    Spawn(IoError),
     #[error("reading from yt-dlp: {0}")]
-    Read(std::io::Error),
+    Read(IoError),
     #[error("reading from yt-dlp: {0}")]
     YtDlp(&'static str),
     #[error("command failed")]
     CommandError,
     #[error("reading metadata: {0}")]
-    ReadMetadata(std::io::Error),
+    ReadMetadata(IoError),
     #[error("parsing metadata: {0}")]
-    ParseMetadata(serde_json::Error),
+    ParseMetadata(MetadataParseError),
 }
 
 impl DownloadError {
     pub fn unexpected_eof() -> Self {
-        DownloadError::Read(std::io::Error::new(
+        Self::read(io::Error::new(
             std::io::ErrorKind::UnexpectedEof,
             "yt-dlp terminated abruptly",
         ))
     }
+
+    pub fn spawn(e: io::Error) -> Self {
+        DownloadError::Spawn(e.into())
+    }
+
+    pub fn read(e: io::Error) -> Self {
+        DownloadError::Read(e.into())
+    }
+
+    pub fn read_metadata(e: io::Error) -> Self {
+        DownloadError::ReadMetadata(e.into())
+    }
+
+    pub fn parse_metadata(e: serde_json::Error) -> Self {
+        DownloadError::ParseMetadata(e.into())
+    }
 }
+
+#[derive(Debug, Error, Clone, From)]
+#[error("{0}")]
+#[from(types(io::Error))]
+pub struct IoError(Arc<io::Error>);
+
+#[derive(Debug, Error, Clone, From)]
+#[error("{0}")]
+#[from(types(serde_json::Error))]
+pub struct MetadataParseError(Arc<serde_json::Error>);
 
 pub async fn start_download(dir: SharedDir, url: &Url) -> Result<DownloadHandle, DownloadError> {
     let mut process = Command::new("yt-dlp")
@@ -149,7 +188,7 @@ pub async fn start_download(dir: SharedDir, url: &Url) -> Result<DownloadHandle,
         .current_dir(dir.path())
         .kill_on_drop(true)
         .spawn()
-        .map_err(DownloadError::Spawn)?;
+        .map_err(DownloadError::spawn)?;
 
     let stdout = process.stdout.take().unwrap();
     let mut ytdlp = YtdlpReader {
@@ -206,10 +245,10 @@ pub async fn start_download(dir: SharedDir, url: &Url) -> Result<DownloadHandle,
     };
 
     let metadata_json = tokio::fs::read_to_string(metadata_file.path()).await
-        .map_err(DownloadError::ReadMetadata)?;
+        .map_err(DownloadError::read_metadata)?;
 
     let metadata = serde_json::from_str::<Metadata>(&metadata_json)
-        .map_err(DownloadError::ParseMetadata)?;
+        .map_err(DownloadError::parse_metadata)?;
 
     let (progress_tx, progress_rx) = watch::channel(progress.clone());
     let (complete_tx, complete_rx) = oneshot::channel();
@@ -220,7 +259,7 @@ pub async fn start_download(dir: SharedDir, url: &Url) -> Result<DownloadHandle,
         metadata: metadata,
         metadata_file: metadata_file.into_shared(),
         progress: progress_rx,
-        complete: complete_rx,
+        complete: complete_rx.shared(),
     };
 
     tokio::task::spawn(async move {
@@ -307,7 +346,7 @@ impl YtdlpReader {
                 Ok(Some(parse_line(line)))
             }
             Err(e) => {
-                return Err(DownloadError::Read(e));
+                return Err(DownloadError::read(e));
             }
         }
     }
