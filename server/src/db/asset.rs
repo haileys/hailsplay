@@ -1,81 +1,91 @@
 use bytes::Bytes;
-use diesel::{AsExpression, FromSqlRow, sql_types};
+use diesel::prelude::*;
+use diesel::sql_types;
+use diesel::{AsExpression, FromSqlRow};
 use mime::Mime;
-use rusqlite::{Connection, Row};
+
+use crate::db::{self, Error};
+use crate::db::types;
+use crate::db::schema::{assets, asset_blobs};
 
 #[derive(Clone, Copy, Debug, FromSqlRow, AsExpression)]
-#[diesel(sql_type = sql_types::Integer)]
+#[diesel(sql_type = sql_types::BigInt)]
 pub struct AssetId(pub i64);
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, FromSqlRow, AsExpression)]
+#[diesel(sql_type = sql_types::Text)]
 pub struct AssetDigest(pub String);
 
+#[derive(Debug, Clone, Queryable, Insertable, Selectable)]
+#[diesel(table_name = assets)]
 pub struct Asset {
     pub filename: String,
-    pub content_type: Mime,
+    pub content_type: types::Mime,
+    #[diesel(column_name = digest_sha256)]
     pub digest: AssetDigest,
 }
 
-pub fn create(conn: &mut Connection, filename: String, content_type: Mime, data: &[u8])
-    -> Result<AssetId, rusqlite::Error>
-{
-    let txn = conn.transaction()?;
-
-    let filename = filenamify::filenamify(filename);
-    let content_type = content_type.to_string();
-    let digest = create_blob(&txn, data)?;
-
-    let id = txn.query_row(
-        "INSERT INTO assets (filename, content_type, digest_sha256) VALUES (?1, ?2, ?3) RETURNING id",
-        (filename, content_type, &digest.0),
-        |row| Ok(AssetId(row.get(0)?)))?;
-
-    txn.commit()?;
-
-    Ok(id)
+impl Asset {
+    pub fn content_type(&self) -> Mime {
+        self.content_type.0
+    }
 }
 
-fn get_mime(row: &Row, idx: usize) -> Result<Mime, rusqlite::Error> {
-    let mime: String = row.get(idx)?;
-    mime.parse().map_err(|e| {
-        rusqlite::Error::FromSqlConversionFailure(idx, rusqlite::types::Type::Text, Box::new(e))
+pub fn create(conn: &mut db::Connection, filename: String, content_type: Mime, data: Vec<u8>)
+    -> Result<AssetId, Error>
+{
+    conn.transaction(|conn| {
+        let filename = filenamify::filenamify(filename);
+        let content_type = content_type.into();
+        let digest = create_blob(conn, data)?;
+
+        let asset = Asset { filename, content_type, digest };
+
+        Ok(diesel::insert_into(assets::table)
+            .values(&asset)
+            .returning(assets::id)
+            .get_result(conn)?)
     })
 }
 
-pub fn load_asset(conn: &Connection, id: AssetId)
-    -> Result<Asset, rusqlite::Error>
+pub fn load_asset(conn: &mut db::Connection, id: AssetId)
+    -> Result<Asset, db::Error>
 {
-    conn.query_row(
-        "SELECT filename, content_type, digest_sha256 FROM assets WHERE id = ?1",
-        [id.0],
-        |row| Ok(Asset {
-            filename: row.get(0)?,
-            content_type: get_mime(row, 1)?,
-            digest: AssetDigest(row.get(2)?),
-        }),
-    )
+    Ok(assets::table
+        .filter(assets::id.eq(id))
+        .get_result(conn)?)
 }
 
-pub fn load_blob(conn: &Connection, digest: &AssetDigest)
-    -> Result<Bytes, rusqlite::Error>
+pub fn load_blob(conn: &mut db::Connection, digest: &AssetDigest)
+    -> Result<Bytes, db::Error>
 {
-    conn.query_row(
-        "SELECT blob FROM asset_blobs WHERE digest_sha256 = ?1",
-        [&digest.0],
-        |row| {
-            let data: Vec<u8> = row.get(0)?;
-            Ok(Bytes::from(data))
-        })
+    Ok(asset_blobs::table
+        .filter(asset_blobs::digest_sha256.eq(digest))
+        .select(asset_blobs::blob)
+        .get_result(conn)?)
 }
 
-fn create_blob(conn: &Connection, data: &[u8])
+#[derive(Insertable)]
+#[diesel(table_name = asset_blobs)]
+struct NewBlob {
+    #[diesel(column_name = digest_sha256)]
+    digest: AssetDigest,
+    blob: Vec<u8>,
+}
+
+fn create_blob(conn: &mut db::Connection, blob: Vec<u8>)
     -> Result<AssetDigest, rusqlite::Error>
 {
-    let digest = sha256::digest(data);
+    let digest = AssetDigest(sha256::digest(&blob));
 
-    conn.execute(
-        "INSERT OR IGNORE INTO asset_blobs (digest_sha256, blob) VALUES (?1, ?2)",
-        (&digest, data))?;
+    let row = NewBlob {
+        digest: digest.clone(),
+        blob,
+    };
 
-    Ok(AssetDigest(digest))
+    diesel::insert_or_ignore_into(asset_blobs::table)
+        .values(&row)
+        .execute(conn)?;
+
+    Ok(digest)
 }

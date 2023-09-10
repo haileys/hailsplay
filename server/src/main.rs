@@ -1,3 +1,5 @@
+// #![recursion_limit = "4096"]
+
 mod api;
 mod config;
 mod db;
@@ -87,6 +89,10 @@ impl App {
 
     pub async fn mpd(&self) -> anyhow::Result<Mpd> {
         Ok(Mpd::connect(&self.0.config.mpd).await?)
+    }
+
+    pub fn database(&self) -> &db::Pool {
+        &self.0.database
     }
 
     pub async fn use_database<R>(&self, f: impl FnOnce(&mut rusqlite::Connection) -> R) -> R {

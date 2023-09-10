@@ -1,39 +1,48 @@
-use rusqlite::{Connection, Row, OptionalExtension};
-use url::Url;
+use diesel::prelude::*;
+use diesel::{FromSqlRow, AsExpression, sql_types};
 
+use crate::db::{Connection, Error};
 use crate::db::asset::AssetId;
+use crate::db::types;
+use crate::db::schema::radio_stations;
 
+#[derive(Clone, Copy, Debug, FromSqlRow, AsExpression)]
+#[diesel(sql_type = sql_types::Integer)]
 pub struct StationId(i64);
 
+#[derive(Queryable, Selectable)]
+#[diesel(table_name = radio_stations)]
 pub struct Station {
+    pub id: StationId,
     pub name: String,
-    pub icon: AssetId,
-    pub stream_url: Url,
+    pub icon_id: AssetId,
+    pub stream_url: types::Url,
 }
 
-fn station_from_row(row: &Row) -> Result<Station, rusqlite::Error> {
-    Ok(Station {
-        name: row.get(0)?,
-        icon: AssetId(row.get(1)?),
-        stream_url: row.get(2)?,
-    })
+#[derive(Insertable)]
+#[diesel(table_name = radio_stations)]
+pub struct NewStation {
+    pub name: String,
+    pub icon_id: AssetId,
+    pub stream_url: types::Url,
 }
 
-pub fn insert_station(conn: &mut Connection, station: Station) -> Result<StationId, rusqlite::Error> {
-    conn.query_row(
-        "INSERT INTO radio_stations (name, icon_id, stream_url) VALUES (?1, ?2, ?3) RETURNING id",
-        (&station.name, station.icon.0, &station.stream_url),
-        |row| row.get(0).map(StationId))
+pub fn insert_station(conn: &mut Connection, station: NewStation) -> Result<StationId, Error> {
+    Ok(diesel::insert_into(radio_stations::table)
+        .values(&station)
+        .returning(radio_stations::id)
+        .get_result(conn)?)
 }
 
-pub fn all_stations(conn: &mut Connection) -> Result<Vec<Station>, rusqlite::Error> {
-    conn.prepare("SELECT name, icon_id, stream_url FROM radio_stations ORDER BY id ASC")?
-        .query_map([], station_from_row)?
-        .collect()
+pub fn all_stations(conn: &mut Connection) -> Result<Vec<Station>, Error> {
+    Ok(radio_stations::table
+        .order(radio_stations::id)
+        .get_results(conn)?)
 }
 
-pub fn find_by_url(conn: &mut Connection, url: &str) -> Result<Option<Station>, rusqlite::Error> {
-    conn.prepare("SELECT name, icon_id, stream_url FROM radio_stations WHERE stream_url = ?1")?
-        .query_row([url], station_from_row)
-        .optional()
+pub fn find_by_url(conn: &mut Connection, url: &str) -> Result<Option<Station>, Error> {
+    Ok(radio_stations::table
+        .filter(radio_stations::stream_url.eq(url))
+        .get_result(conn)
+        .optional()?)
 }

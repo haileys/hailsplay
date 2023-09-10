@@ -3,10 +3,10 @@ use std::path::Path;
 
 use headers::{HeaderMapExt, ContentType};
 use mime::Mime;
-use rusqlite::Connection;
 use thiserror::Error;
 use url::Url;
 
+use crate::db::{self, Connection};
 use crate::db::asset::{self, AssetId};
 
 pub struct UploadableAsset {
@@ -89,7 +89,7 @@ pub async fn download(http: reqwest::Client, url: &Url) -> Result<UploadableAsse
 }
 
 impl UploadableAsset {
-    pub fn insert(self, conn: &mut Connection) -> Result<AssetId, rusqlite::Error> {
-        asset::create(conn, self.filename, self.content_type, &self.data)
+    pub fn insert(self, conn: &mut Connection) -> Result<AssetId, db::Error> {
+        asset::create(conn, self.filename, self.content_type, self.data)
     }
 }

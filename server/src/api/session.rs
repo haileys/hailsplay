@@ -1,4 +1,4 @@
-use crate::{App, Config};
+use crate::{App, Config, db};
 use crate::mpd::Mpd;
 
 pub struct Session {
@@ -26,6 +26,10 @@ impl Session {
 
     pub fn mpd(&mut self) -> &mut Mpd {
         &mut self.mpd
+    }
+
+    pub fn database(&self) -> &db::Pool {
+        self.app.database()
     }
 
     pub async fn use_database<R>(

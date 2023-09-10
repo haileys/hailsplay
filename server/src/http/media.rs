@@ -15,7 +15,7 @@ use tokio::io::AsyncRead;
 use tokio_stream::wrappers::WatchStream;
 use futures::{StreamExt, stream::Fuse, ready};
 
-use crate::{App, Config};
+use crate::{App, Config, db};
 use crate::api::archive::{MediaStreamId, RecordKind, MetadataParseError};
 use crate::ytdlp::Progress;
 use crate::error::AppError;
@@ -52,7 +52,7 @@ async fn ranged_response(media: &RecordKind, range: Option<Range>, config: &Conf
     let file = tokio::fs::File::open(path).await?;
 
     match media {
-        RecordKind::Archive(_, _) => {
+        RecordKind::Archive(_) => {
             let body = KnownSize::file(file).await?;
             Ok(Ranged::new(range, body).into_response())
         }
@@ -69,7 +69,7 @@ pub enum MediaStreamError {
     NotFound,
     RangeNotSatisfiable(RangeNotSatisfiable),
     Io(io::Error),
-    Database(rusqlite::Error),
+    Database(db::Error),
     ParseMetadata(MetadataParseError)
 }
 

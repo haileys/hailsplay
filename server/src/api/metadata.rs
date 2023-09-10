@@ -6,6 +6,7 @@ use url::Url;
 use hailsplay_protocol::TrackInfo;
 
 use crate::api::archive::MediaStreamId;
+use crate::db;
 use crate::db::radio::{self, Station};
 use crate::http::assets;
 use crate::mpd::PlaylistItem;
@@ -62,9 +63,9 @@ fn fallback_item(item: &PlaylistItem) -> TrackInfo {
     }
 }
 
-async fn radio_track_info(session: &Session, item: &RadioItem) -> Result<TrackInfo, rusqlite::Error> {
-    session.use_database(|conn| {
-        let image_url = assets::url(conn, session.config(), item.station.icon)?;
+async fn radio_track_info(session: &Session, item: &RadioItem) -> Result<TrackInfo, db::Error> {
+    session.database().diesel(|conn| {
+        let image_url = assets::url(conn, session.config(), item.station.icon_id)?;
         let primary_label = item.station.name.to_owned();
         let secondary_label = item.title.clone();
 
@@ -76,8 +77,8 @@ async fn radio_track_info(session: &Session, item: &RadioItem) -> Result<TrackIn
     }).await
 }
 
-async fn radio_item(session: &Session, item: &PlaylistItem) -> Result<Option<RadioItem>, rusqlite::Error> {
-    session.use_database(|conn| {
+async fn radio_item(session: &Session, item: &PlaylistItem) -> Result<Option<RadioItem>, db::Error> {
+    session.database().diesel(|conn| {
         let title = item.title.to_owned();
 
         Ok(radio::find_by_url(conn, &item.file)?
@@ -112,7 +113,7 @@ async fn media_track_info(session: &Session, id: MediaStreamId) -> anyhow::Resul
 }
 
 async fn media_stream_item(session: &Session, item: &PlaylistItem)
-    -> Result<Option<MediaStreamId>, rusqlite::Error>
+    -> Result<Option<MediaStreamId>, db::Error>
 {
     lazy_static::lazy_static! {
         static ref URL_RE: Regex =

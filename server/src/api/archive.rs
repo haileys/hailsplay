@@ -2,17 +2,16 @@ use std::{collections::HashMap, sync::{Arc, Mutex}, path::{PathBuf, Path}};
 
 use chrono::Utc;
 use derive_more::{Display, FromStr};
-use diesel::{FromSqlRow, AsExpression, sql_types};
+use diesel::{FromSqlRow, AsExpression, sql_types, OptionalExtension};
 use mime::Mime;
-use rusqlite::OptionalExtension;
 use serde::Deserialize;
 use url::Url;
 use uuid::Uuid;
 use thiserror::Error;
 
-use crate::{api::asset, ytdlp::DownloadError};
+use crate::{api::asset, ytdlp::DownloadError, db::{archive::NewArchiveRecord, OptionalExt}};
 use crate::config::Config;
-use crate::db::Pool;
+use crate::db::{self, Pool};
 use crate::db::archive::{self, ArchiveRecord, ArchiveRecordId};
 use crate::fs::WorkingDirectory;
 use crate::ytdlp::{self, Metadata};
@@ -42,15 +41,15 @@ impl Archive {
         Archive { shared: Arc::new(shared) }
     }
 
-    pub async fn load(&self, id: MediaStreamId) -> Result<Option<RecordKind>, rusqlite::Error> {
-        let record = self.shared.database.with(|conn| {
+    pub async fn load(&self, id: MediaStreamId) -> Result<Option<RecordKind>, db::Error> {
+        let record = self.shared.database.diesel(|conn| {
             archive::load_by_stream_uuid(conn, &id)
                 .optional()
         }).await?;
 
         // database records always take precedence over in-process state
-        if let Some((id, record)) = record {
-            return Ok(Some(RecordKind::Archive(id, record)));
+        if let Some(record) = record {
+            return Ok(Some(RecordKind::Archive(record)));
         }
 
         // check locked state next
@@ -102,10 +101,8 @@ enum ArchiveError {
     DownloadFailed(DownloadError),
     #[error("media download task abruptly terminated")]
     DownloadTaskFailed,
-    #[error("failed to save thumbnail to database: {0}")]
-    InsertThumbnail(rusqlite::Error),
-    #[error("failed to save media record to database: {0}")]
-    InsertArchiveRecord(rusqlite::Error),
+    #[error("database error: {0}")]
+    Database(#[from] db::Error),
 }
 
 async fn archive_once_download_complete(
@@ -140,13 +137,12 @@ async fn archive_once_download_complete(
         None => None,
     };
 
-    shared.database.with(|conn| {
+    shared.database.diesel(|conn| -> Result<_, ArchiveError> {
         let thumbnail_id = thumbnail
             .map(|thumbnail| thumbnail.insert(conn))
-            .transpose()
-            .map_err(ArchiveError::InsertThumbnail)?;
+            .transpose()?;
 
-        let record = ArchiveRecord {
+        let record = NewArchiveRecord {
             filename: record.download.filename(),
             canonical_url: canonical_url.into(),
             archived_at: Utc::now().into(),
@@ -155,8 +151,7 @@ async fn archive_once_download_complete(
             metadata: metadata.into(),
         };
 
-        archive::insert_media_record(conn, record)
-            .map_err(ArchiveError::InsertArchiveRecord)
+        Ok(archive::insert_media_record(conn, record)?)
     }).await?;
 
     let mut locked = shared.locked.lock().unwrap();
@@ -170,13 +165,13 @@ async fn archive_once_download_complete(
 
 pub enum RecordKind {
     Memory(Arc<MemoryRecord>),
-    Archive(ArchiveRecordId, ArchiveRecord),
+    Archive(ArchiveRecord),
 }
 
 impl RecordKind {
     pub fn content_type(&self) -> Mime {
         let path = match self {
-            RecordKind::Archive(_, record) => Path::new(&record.filename),
+            RecordKind::Archive(record) => Path::new(&record.filename),
             RecordKind::Memory(record) => record.download.file.path(),
         };
 
@@ -185,7 +180,7 @@ impl RecordKind {
 
     pub fn disk_path(&self, config: &Config) -> PathBuf {
         match self {
-            RecordKind::Archive(_, record) => {
+            RecordKind::Archive(record) => {
                 config.storage.archive.join(&record.filename)
             }
             RecordKind::Memory(record) => {
@@ -196,14 +191,14 @@ impl RecordKind {
 
     pub fn filename(&self) -> String {
         match self {
-            RecordKind::Archive(_, record) => record.filename.clone(),
+            RecordKind::Archive(record) => record.filename.clone(),
             RecordKind::Memory(record) => record.download.filename(),
         }
     }
 
     pub fn stream_id(&self) -> MediaStreamId {
         match self {
-            RecordKind::Archive(_, record) => record.stream_uuid,
+            RecordKind::Archive(record) => record.stream_uuid,
             RecordKind::Memory(record) => record.id,
         }
     }
@@ -215,9 +210,9 @@ impl RecordKind {
 
     pub fn parse_metadata(&self) -> Result<Metadata, MetadataParseError> {
         match self {
-            RecordKind::Archive(id, record) => {
+            RecordKind::Archive(record) => {
                 record.parse_metadata()
-                    .map_err(|error| MetadataParseError { id: *id, error })
+                    .map_err(|error| MetadataParseError { id: record.id, error })
             }
             RecordKind::Memory(record) => {
                 Ok(record.metadata().clone())

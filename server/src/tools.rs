@@ -5,8 +5,8 @@ use url::Url;
 
 use crate::api::asset;
 use crate::config::Config;
-use crate::db;
-use crate::db::radio::Station;
+use crate::db::{self, types};
+use crate::db::radio::{Station, NewStation};
 
 #[derive(StructOpt)]
 pub enum Cmd {
@@ -34,13 +34,13 @@ async fn add_station(opt: AddStationOpt, config: Config) -> anyhow::Result<()> {
 
     let asset = asset::upload(&opt.icon).await?;
 
-    database.with(|conn| {
+    database.diesel(|conn| {
         let asset_id = asset.insert(conn)?;
 
-        db::radio::insert_station(conn, Station {
+        db::radio::insert_station(conn, NewStation {
             name: opt.name,
-            icon: asset_id,
-            stream_url: opt.stream_url,
+            icon_id: asset_id,
+            stream_url: types::Url(opt.stream_url),
         })
     }).await?;
 

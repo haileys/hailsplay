@@ -9,6 +9,7 @@ mod migrate;
 use std::path::Path;
 use std::sync::Arc;
 
+use diesel::OptionalExtension;
 use thiserror::Error;
 use tokio::sync::{Mutex, MutexGuard};
 
@@ -26,6 +27,28 @@ pub struct Pool {
     pool: R2D2Pool,
 }
 
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("opening connection: {0}")]
+    Pool(#[from] r2d2::PoolError),
+    #[error("query error: {0}")]
+    Query(#[from] diesel::result::Error),
+}
+
+pub trait OptionalExt<T> {
+    fn optional(self) -> Result<Option<T>, Error>;
+}
+
+impl<T> OptionalExt<T> for Result<T, Error> {
+    fn optional(self) -> Result<Option<T>, Error> {
+        match self {
+            Ok(val) => Ok(Some(val)),
+            Err(Error::Pool(e)) => Err(Error::Pool(e)),
+            Err(Error::Query(e)) => Err(e).optional().map_err(Error::Query),
+        }
+    }
+}
+
 impl Pool {
     pub async fn get(&self) -> MutexGuard<'_, rusqlite::Connection> {
         self.conn.lock().await
@@ -34,6 +57,19 @@ impl Pool {
     pub async fn with<R>(&self, f: impl FnOnce(&mut rusqlite::Connection) -> R) -> R {
         let mut conn = self.get().await;
         tokio::task::block_in_place(|| f(&mut conn))
+    }
+
+    pub async fn diesel<T, E>(
+        &self,
+        func: impl FnOnce(&mut Connection) -> Result<T, E>,
+    ) -> Result<T, E>
+        where E: From<Error>
+    {
+        tokio::task::block_in_place(|| {
+            let mut conn = self.pool.get().map_err(Error::Pool)?;
+            let ret = func(&mut conn)?;
+            Ok(ret)
+        })
     }
 }
 
