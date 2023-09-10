@@ -40,4 +40,6 @@ rusqlite = { version = "0.29.0", features = ["url", "blob"] }
 structopt = { version = "0.3.26", features = ["color"] }
 sha256 = "1.4.0"
 filenamify = "0.1.0"
+axum-range = "0.2.2"
+pin-project = "1.1.3"
 # wasm-typescript-definition = "0.1.4"
