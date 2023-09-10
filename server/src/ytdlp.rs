@@ -301,14 +301,21 @@ async fn run_download(
             Line::Progress(progress) => {
                 let percent = (progress.downloaded_bytes as f64 / progress.total_bytes as f64) * 100.0;
                 log::debug!("yt-dlp download progress {:.1}%", percent);
-                let _ = progress_tx.send(progress);
+
+                let _ = progress_tx.send(progress.clone());
+
+                if progress.downloaded_bytes == progress.total_bytes {
+                    break;
+                }
             }
             Line::Complete => {
                 log::debug!("yt-dlp download complete");
+
                 let _ = progress_tx.send(Progress {
                     downloaded_bytes: total_bytes,
                     total_bytes,
                 });
+
                 break;
             }
             | Line::Download { .. }

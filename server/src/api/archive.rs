@@ -9,7 +9,7 @@ use url::Url;
 use uuid::Uuid;
 use thiserror::Error;
 
-use crate::api::asset;
+use crate::{api::asset, ytdlp::DownloadError};
 use crate::config::Config;
 use crate::db::Pool;
 use crate::db::archive::{self, ArchiveRecord, ArchiveRecordId};
@@ -76,12 +76,16 @@ impl Archive {
             download: Arc::new(download),
         });
 
-        tokio::task::spawn(
-            wait_for_download_complete(
-                self.shared.clone(),
-                record.clone(),
-            )
-        );
+        tokio::task::spawn({
+            let shared = self.shared.clone();
+            let record = record.clone();
+            async move {
+                let result = archive_once_download_complete(shared, record).await;
+                if let Err(e) = result {
+                    log::error!("error archiving media, not saving: {e:?}");
+                }
+            }
+        });
 
         let mut locked = self.shared.locked.lock().unwrap();
         locked.media_by_url.insert(url.clone(), id);
@@ -91,20 +95,29 @@ impl Archive {
     }
 }
 
-async fn wait_for_download_complete(shared: Arc<Shared>, record: Arc<MemoryRecord>) {
+#[derive(Error, Debug)]
+enum ArchiveError {
+    #[error("media download failed: {0}")]
+    DownloadFailed(DownloadError),
+    #[error("media download task abruptly terminated")]
+    DownloadTaskFailed,
+    #[error("failed to serialize metadata for database insert {0}")]
+    SerializeMetadata(serde_json::Error),
+    #[error("failed to save thumbnail to database: {0}")]
+    InsertThumbnail(rusqlite::Error),
+    #[error("failed to save media record to database: {0}")]
+    InsertArchiveRecord(rusqlite::Error),
+}
+
+async fn archive_once_download_complete(
+    shared: Arc<Shared>,
+    record: Arc<MemoryRecord>,
+) -> Result<(), ArchiveError> {
     let complete = record.download.complete.clone();
 
-    match complete.await {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => {
-            log::error!("media download failed: {e}");
-            return;
-        }
-        Err(_) => {
-            log::error!("media download task abruptly terminated");
-            return;
-        }
-    }
+    complete.await
+        .map_err(|_| ArchiveError::DownloadTaskFailed)?
+        .map_err(ArchiveError::DownloadFailed)?;
 
     let metadata = record.metadata();
 
@@ -128,18 +141,14 @@ async fn wait_for_download_complete(shared: Arc<Shared>, record: Arc<MemoryRecor
         None => None,
     };
 
-    let metadata_value = match serde_json::to_value(metadata) {
-        Ok(value) => value,
-        Err(e) => {
-            log::error!("failed to serialize metadata for database insert: {e:?}");
-            return;
-        }
-    };
+    let metadata_value = serde_json::to_value(metadata)
+        .map_err(ArchiveError::SerializeMetadata)?;
 
-    let result = shared.database.with(|conn| {
+    shared.database.with(|conn| {
         let thumbnail_id = thumbnail
             .map(|thumbnail| thumbnail.insert(conn))
-            .transpose()?;
+            .transpose()
+            .map_err(ArchiveError::InsertThumbnail)?;
 
         let record = ArchiveRecord {
             filename: record.download.filename(),
@@ -151,18 +160,16 @@ async fn wait_for_download_complete(shared: Arc<Shared>, record: Arc<MemoryRecor
         };
 
         archive::insert_media_record(conn, record)
-    }).await;
-
-    if let Err(e) = result {
-        log::error!("failed to insert archived media record: {e:?}");
-        return;
-    }
+            .map_err(ArchiveError::InsertArchiveRecord)
+    }).await?;
 
     let mut locked = shared.locked.lock().unwrap();
     locked.media.remove(&record.id);
     locked.media_by_url.remove(&record.url);
 
     log::info!("successfully downloaded and archived url: {}", record.url);
+
+    Ok(())
 }
 
 pub enum RecordKind {

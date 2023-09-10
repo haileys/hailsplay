@@ -1,5 +1,5 @@
 CREATE TABLE archived_media (
-    id INT PRIMARY KEY,
+    id INTEGER PRIMARY KEY,
     path TEXT NOT NULL UNIQUE,
     canonical_url TEXT NOT NULL,
     archived_at TEXT NOT NULL,
