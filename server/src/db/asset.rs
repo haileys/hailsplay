@@ -1,8 +1,10 @@
 use bytes::Bytes;
+use diesel::{AsExpression, FromSqlRow, sql_types};
 use mime::Mime;
 use rusqlite::{Connection, Row};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, FromSqlRow, AsExpression)]
+#[diesel(sql_type = sql_types::Integer)]
 pub struct AssetId(pub i64);
 
 #[derive(Clone, Debug)]

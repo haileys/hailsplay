@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::{Arc, Mutex}, path::{PathBuf, Path}};
 
 use chrono::Utc;
 use derive_more::{Display, FromStr};
+use diesel::{FromSqlRow, AsExpression, sql_types};
 use mime::Mime;
 use rusqlite::OptionalExtension;
 use serde::Deserialize;
@@ -101,8 +102,6 @@ enum ArchiveError {
     DownloadFailed(DownloadError),
     #[error("media download task abruptly terminated")]
     DownloadTaskFailed,
-    #[error("failed to serialize metadata for database insert {0}")]
-    SerializeMetadata(serde_json::Error),
     #[error("failed to save thumbnail to database: {0}")]
     InsertThumbnail(rusqlite::Error),
     #[error("failed to save media record to database: {0}")]
@@ -141,9 +140,6 @@ async fn archive_once_download_complete(
         None => None,
     };
 
-    let metadata_value = serde_json::to_value(metadata)
-        .map_err(ArchiveError::SerializeMetadata)?;
-
     shared.database.with(|conn| {
         let thumbnail_id = thumbnail
             .map(|thumbnail| thumbnail.insert(conn))
@@ -152,11 +148,11 @@ async fn archive_once_download_complete(
 
         let record = ArchiveRecord {
             filename: record.download.filename(),
-            canonical_url,
-            archived_at: Utc::now(),
+            canonical_url: canonical_url.into(),
+            archived_at: Utc::now().into(),
             stream_uuid: record.id,
             thumbnail_id,
-            metadata: metadata_value,
+            metadata: metadata.into(),
         };
 
         archive::insert_media_record(conn, record)
@@ -238,8 +234,9 @@ pub struct MetadataParseError {
     pub error: serde_json::Error,
 }
 
-#[derive(Debug, Display, Deserialize, FromStr, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Display, Deserialize, FromStr, Clone, Copy, Hash, PartialEq, Eq, FromSqlRow, AsExpression)]
 #[display(fmt = "{}", "self.0")]
+#[diesel(sql_type = sql_types::Text)]
 pub struct MediaStreamId(pub Uuid);
 
 struct Shared {

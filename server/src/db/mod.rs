@@ -2,6 +2,7 @@ pub mod archive;
 pub mod asset;
 pub mod radio;
 pub mod schema;
+pub mod types;
 
 mod migrate;
 
