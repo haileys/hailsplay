@@ -1,30 +1,42 @@
+use derive_more::From;
 use diesel::prelude::*;
 use diesel::{FromSqlRow, AsExpression, sql_types};
+use url::Url;
 
 use crate::db::{Connection, Error};
 use crate::db::asset::AssetId;
 use crate::db::types;
 use crate::db::schema::radio_stations;
 
-#[derive(Clone, Copy, Debug, FromSqlRow, AsExpression)]
+#[derive(Clone, Copy, Debug, From, FromSqlRow, AsExpression)]
 #[diesel(sql_type = sql_types::Integer)]
 pub struct StationId(i64);
 
 #[derive(Queryable, Selectable)]
 #[diesel(table_name = radio_stations)]
 pub struct Station {
+    #[diesel(deserialize_as = i64)]
     pub id: StationId,
+
     pub name: String,
+
+    #[diesel(deserialize_as = i32)]
     pub icon_id: AssetId,
-    pub stream_url: types::Url,
+
+    #[diesel(deserialize_as = String)]
+    pub stream_url: Url,
 }
 
 #[derive(Insertable)]
 #[diesel(table_name = radio_stations)]
 pub struct NewStation {
     pub name: String,
+
+    #[diesel(serialize_as = i32)]
     pub icon_id: AssetId,
-    pub stream_url: types::Url,
+
+    #[diesel(serialize_as = String)]
+    pub stream_url: Url,
 }
 
 pub fn insert_station(conn: &mut Connection, station: NewStation) -> Result<StationId, Error> {

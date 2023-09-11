@@ -27,7 +27,7 @@ pub async fn stations(app: State<App>) -> AppResult<Json<Vec<RadioStation>>> {
             .map(|station| Ok(RadioStation {
                 name: station.name,
                 icon_url: http::assets::url(conn, app.config(), station.icon_id)?,
-                stream_url: station.stream_url.0,
+                stream_url: station.stream_url,
             }))
             .collect::<Result<Vec<_>, db::Error>>()
     }).await?;

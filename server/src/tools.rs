@@ -40,7 +40,7 @@ async fn add_station(opt: AddStationOpt, config: Config) -> anyhow::Result<()> {
         db::radio::insert_station(conn, NewStation {
             name: opt.name,
             icon_id: asset_id,
-            stream_url: types::Url(opt.stream_url),
+            stream_url: opt.stream_url,
         })
     }).await?;
 
