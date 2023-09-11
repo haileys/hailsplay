@@ -1,5 +1,5 @@
 CREATE TABLE assets (
-    id INTEGER PRIMARY KEY,
+    id INTEGER NOT NULL PRIMARY KEY,
     filename TEXT NOT NULL,
     content_type TEXT NOT NULL,
     digest_sha256 TEXT NOT NULL,
@@ -7,12 +7,12 @@ CREATE TABLE assets (
 );
 
 CREATE TABLE asset_blobs (
-    digest_sha256 TEXT PRIMARY KEY,
+    digest_sha256 TEXT NOT NULL PRIMARY KEY,
     blob BLOB NOT NULL
 );
 
 CREATE TABLE radio_stations (
-    id INTEGER PRIMARY KEY,
+    id INTEGER NOT NULL PRIMARY KEY,
     name TEXT NOT NULL,
     icon_id INTEGER NOT NULL,
     stream_url TEXT NOT NULL,

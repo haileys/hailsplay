@@ -18,7 +18,11 @@ pub enum MigrationError {
 pub fn run(conn: &mut Connection) -> Result<(), MigrationError> {
     let txn = conn.transaction()?;
 
-    txn.execute_batch("CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY);")?;
+    txn.execute_batch(r"
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            version TEXT NOT NULL PRIMARY KEY
+        );
+    ")?;
 
     let mut database_versions = txn
         .prepare("SELECT version FROM schema_migrations ORDER BY version ASC")?
