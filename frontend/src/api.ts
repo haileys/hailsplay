@@ -45,11 +45,11 @@ export class ApiError extends Error {
 class RequestBuilder {
     _url: string;
     _request: RequestInit & { headers: Headers };
-    _queryParams: URLSearchParams;
+    _query: string;
 
     constructor(method: string, url: string) {
         this._url = url;
-        this._queryParams = new URLSearchParams();
+        this._query = "";
         this._request = { method, headers: new Headers() };
     }
 
@@ -59,7 +59,14 @@ class RequestBuilder {
     }
 
     param(name: string, value: string): this {
-        this._queryParams.set(name, value);
+        if (this._query === "") {
+            this._query += "?";
+        } else {
+            this._query += "&";
+        }
+
+        this._query += name + "=" + encodeURIComponent(value);
+
         return this;
     }
 
@@ -70,12 +77,7 @@ class RequestBuilder {
     }
 
     async response(): Promise<any> {
-        let url = this._url;
-        let query = this._queryParams.toString();
-        if (query !== "") {
-            url += "?" + query;
-        }
-
+        let url = this._url + this._query;
         let response = await catchAbortErrors(fetch(url, this._request));
 
         if (response === null) {
