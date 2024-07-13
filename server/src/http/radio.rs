@@ -11,8 +11,8 @@ pub async fn tune(app: State<App>, params: Json<TuneParams>) -> AppResult<Json<(
     let mut mpd = app.mpd().await?;
 
     // add streaming url and then immediately play it by id
+    mpd.clear().await?;
     let id = mpd.addid(&params.url).await?;
-    mpd.stop().await?;
     mpd.playid(id).await?;
 
     Ok(Json(()))

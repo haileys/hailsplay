@@ -135,6 +135,11 @@ impl Mpd {
         Ok(())
     }
 
+    pub async fn clear(&mut self) -> Result<()> {
+        self.command("clear", &[]).await??;
+        Ok(())
+    }
+
     pub async fn playlistinfo(&mut self) -> Result<Playlist> {
         let resp = self.command("playlistinfo", &[]).await??;
 
